@@ -1,129 +1,130 @@
-// Tela: Painel do mês (Análise Mensal + Painel Mensal + Dashboard da planilha)
-import { S } from '../state.js';
-import { resumoMes, evolucao, saldoConta, nomeMes, somarMesRef, GRUPOS_DESPESA, GRUPOS_RECEITA, META_GRUPO,
-  fatura, vencimentoAtual, limiteUsado, fmtData, MESES, hoje, partes } from '../calc.js';
+// Tela: Painel — Análise Mensal da planilha (resumo, contas, distribuição, calendário, cartões)
+import { S, nomeUsuario } from '../state.js';
+import { resumoIntervalo, saldoConta, diaAnterior, GRUPOS_DESPESA, GRUPOS_RECEITA, META_GRUPO, fatura,
+  vencimentoAtual, limiteUsado, fmtData, hoje, periodoAnterior, intervalo, variacao, evolucao, MESES_CURTOS, partes } from '../calc.js';
 import { esc, brl, pct, barra } from '../ui.js';
+import { periodoHTML, ligarPeriodo, periodoAtual, rotuloPeriodo } from '../components/periodo.js';
+import { calendarioHTML, ligarCalendario } from '../components/calendario.js';
+import { barras, selo as seloVar } from '../components/graficos.js';
+import { selo } from '../components/visual.js';
 import { abrirFormLancamento } from './form-lancamento.js';
 
-function graficoEvolucao(serie) {
-  const W = 640, H = 220, pe = 44, pb = 28, pt = 12;
-  const max = Math.max(1, ...serie.map((s) => Math.max(s.receitas, s.despesas)));
-  const passo = (W - pe - 8) / serie.length;
-  const bw = Math.max(4, passo / 2 - 4);
-  const y = (v) => pt + (H - pt - pb) * (1 - v / max);
-  const linhas = [0, 0.5, 1].map((f) => {
-    const v = max * f;
-    return `<line x1="${pe}" x2="${W}" y1="${y(v)}" y2="${y(v)}" class="eixo"/>
-      <text x="${pe - 6}" y="${y(v) + 4}" text-anchor="end" class="rot">${v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v.toFixed(0)}</text>`;
-  }).join('');
-  const barras = serie.map((s, i) => {
-    const x = pe + i * passo + 2;
-    const { m } = partes(s.ref + '-01');
-    return `
-      <g><title>${nomeMes(s.ref)}\nReceitas: ${brl(s.receitas)}\nDespesas: ${brl(s.despesas)}\nSaldo: ${brl(s.saldo)}</title>
-        <rect x="${x}" y="${y(s.receitas)}" width="${bw}" height="${Math.max(0, H - pb - y(s.receitas))}" rx="2" class="b-rec"/>
-        <rect x="${x + bw + 2}" y="${y(s.despesas)}" width="${bw}" height="${Math.max(0, H - pb - y(s.despesas))}" rx="2" class="b-desp"/>
-        <text x="${x + bw}" y="${H - 8}" text-anchor="middle" class="rot ${s.ref === S.mesRef ? 'rot-atual' : ''}">${MESES[m - 1].slice(0, 3)}</text>
-      </g>`;
-  }).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" class="grafico" role="img" aria-label="Receitas e despesas dos últimos 12 meses">${linhas}${barras}</svg>
-    <div class="legenda"><span><i class="b-rec"></i>Receitas</span><span><i class="b-desp"></i>Despesas</span></div>`;
+function saudacao() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 }
 
 export function render(el) {
-  const r = resumoMes(S.lancs, S.categorias, S.mesRef);
-  const saldoContas = S.contas.filter((c) => c.ativo).map((c) => ({ c, s: saldoConta(c, S.lancs, hoje()) }));
-  const totalContas = saldoContas.reduce((t, x) => t + x.s, 0);
+  const { ini, fim } = periodoAtual();
+  const r = resumoIntervalo(S.lancs, S.categorias, ini, fim);
+  const ant = periodoAnterior(S.ano, S.mes);
+  const ia = intervalo(ant.ano, ant.mes);
+  const rAnt = resumoIntervalo(S.lancs, S.categorias, ia.ini, ia.fim);
+  const ateHoje = fim < hoje() ? fim : hoje();
 
-  const cats = [...r.porCategoria.values()];
-  const despCats = cats.filter((c) => c.tipo === 'saida').sort((a, b) => b.total - a.total);
-  const recCats = cats.filter((c) => c.tipo === 'entrada').sort((a, b) => b.total - a.total);
-  const limiteTotal = S.categorias.filter((c) => c.tipo === 'despesa').reduce((t, c) => t + Number(c.valor_mensal || 0), 0);
-  const previstoRec = S.categorias.filter((c) => c.tipo === 'receita').reduce((t, c) => t + Number(c.valor_mensal || 0), 0);
-  const baseDistrib = r.receitas || r.despesas || 1;
+  const contas = S.contas.filter((c) => c.ativo).map((c) => {
+    const si = c.data_saldo > ini ? Number(c.saldo_inicial) : saldoConta(c, S.lancs, diaAnterior(ini));
+    const sf = saldoConta(c, S.lancs, fim);
+    return { c, si, sf, dif: sf - si };
+  });
+  const totIni = contas.reduce((s, x) => s + x.si, 0), totFim = contas.reduce((s, x) => s + x.sf, 0);
+  const saldoHoje = S.contas.filter((c) => c.ativo).reduce((s, c) => s + saldoConta(c, S.lancs, hoje()), 0);
 
+  const investido = r.porGrupo.get('Metas / Investimentos') || 0;
+  const base = r.receitas || r.despesas || 1;
+  const limiteTotal = S.categorias.filter((c) => c.tipo === 'despesa').reduce((t, c) => t + Number(c.valor_mensal || 0), 0) * (S.mes ? 1 : 12);
   const semCadastro = S.categorias.length === 0;
+
+  // evolução: 12 meses terminando no mês escolhido (ou dezembro, no ano todo)
+  const refFim = `${S.ano}-${String(S.mes || 12).padStart(2, '0')}`;
+  const ev = evolucao(S.lancs, S.categorias, refFim, 12);
+
+  // faturas que vencem no período
+  const faturas = S.cartoes.filter((c) => c.ativo).map((c) => {
+    const vencs = [...new Set(S.lancs.filter((l) => l.cartao_id === c.id && l.data_pagamento >= ini && l.data_pagamento <= fim && l.tipo !== 'pagamento_fatura').map((l) => l.data_pagamento))].sort();
+    const lista = vencs.map((v) => fatura(c, S.lancs, v));
+    return { c, lista, total: lista.reduce((s, f) => s + f.total, 0), aberto: lista.filter((f) => !f.paga).reduce((s, f) => s + f.total, 0), usado: limiteUsado(c, S.lancs) };
+  });
 
   el.innerHTML = `
     <div class="topo-tela">
-      <div class="nav-mes">
-        <button class="btn-icone" data-mes="-1" aria-label="Mês anterior">‹</button>
-        <h1>${nomeMes(S.mesRef)}</h1>
-        <button class="btn-icone" data-mes="1" aria-label="Próximo mês">›</button>
-      </div>
-      <button class="btn btn-primario" data-novo>+ Lançar</button>
+      <div><p class="ola">${saudacao()}, <b>${esc(nomeUsuario())}</b> 👋</p><h1>${esc(rotuloPeriodo())}</h1></div>
+      <div class="topo-acoes">${periodoHTML()}<button class="btn btn-primario" data-novo>+ Lançar</button></div>
     </div>
 
-    ${semCadastro ? `<div class="aviso">Seu app está vazio. Comece em <a href="#/cadastros">Cadastros</a> e toque em <b>“Carregar cadastros da planilha”</b>.</div>` : ''}
+    ${semCadastro ? `<div class="aviso">Seu app está vazio. Comece em <a href="#/cadastros">Cadastros</a> → <b>“Carregar cadastros da planilha”</b>.</div>` : ''}
 
     <section class="kpis">
-      <div class="kpi"><small>Receitas</small><b class="pos">${brl(r.receitas)}</b><span>${brl(r.receitasRecebidas)} recebido${previstoRec ? ` · previsto ${brl(previstoRec)}` : ''}</span></div>
-      <div class="kpi"><small>Despesas</small><b class="neg">${brl(r.despesas)}</b><span>${brl(r.despesasPagas)} pago${limiteTotal ? ` · limite ${brl(limiteTotal)}` : ''}</span></div>
-      <div class="kpi"><small>Saldo do mês</small><b class="${r.saldo >= 0 ? 'pos' : 'neg'}">${brl(r.saldo)}</b><span>${r.pendentesQtd ? `${r.pendentesQtd} pendente(s): ${brl(r.pendentesValor)}` : 'nada pendente'}</span></div>
-      <div class="kpi"><small>Saldo nas contas hoje</small><b class="${totalContas >= 0 ? 'pos' : 'neg'}">${brl(totalContas)}</b><span>${saldoContas.length} conta(s)</span></div>
+      <div class="kpi kpi-rec"><small>Ganhos</small><b>${brl(r.receitas)}</b><span>${seloVar(variacao(r.receitas, rAnt.receitas))} vs. período anterior</span></div>
+      <div class="kpi kpi-desp"><small>Gastos</small><b>${brl(r.despesas)}</b><span>${seloVar(variacao(r.despesas, rAnt.despesas), { inverso: true })} ${limiteTotal ? `· limite ${brl(limiteTotal)}` : 'vs. período anterior'}</span></div>
+      <div class="kpi kpi-saldo"><small>Saldo do período</small><b class="${r.saldo >= 0 ? 'pos' : 'neg'}">${brl(r.saldo)}</b><span>${r.receitas ? `guardou ${pct(Math.max(0, r.saldo) / r.receitas)} dos ganhos` : '—'}</span></div>
+      <div class="kpi kpi-contas"><small>Saldo nas contas hoje</small><b class="${saldoHoje >= 0 ? '' : 'neg'}">${brl(saldoHoje)}</b><span>${contas.length} conta(s)</span></div>
     </section>
 
-    <div class="grade2">
+    <div class="grade-painel">
       <section class="cartao-bloco">
-        <h2>Distribuição das despesas</h2>
-        <p class="dica">Percentual sobre as receitas do mês. Meta: 50% essenciais · 30% não essenciais · 20% metas e investimentos.</p>
+        <h2>Resumo do período</h2>
+        <div class="resumo-tabela">
+          <div><span>💰 Ganhos</span><b class="pos">${brl(r.receitas)}</b></div>
+          <div><span>💸 Gastos</span><b class="neg">${brl(r.despesas)}</b></div>
+          <div><span>📈 Investido / metas</span><b>${brl(investido)}</b></div>
+          <div><span>🐷 Guardado (saldo positivo)</span><b>${brl(Math.max(0, r.saldo))}</b></div>
+          <div><span>⏳ A receber</span><b>${brl(r.aReceber)}</b></div>
+          <div><span>🧾 A pagar</span><b>${brl(r.aPagar)}</b></div>
+          <div class="total"><span>Saldo final</span><b class="${r.saldo >= 0 ? 'pos' : 'neg'}">${brl(r.saldo)}</b></div>
+        </div>
+      </section>
+
+      <section class="cartao-bloco">
+        <h2>Calendário de gastos</h2>
+        ${calendarioHTML()}
+      </section>
+
+      <section class="cartao-bloco span2">
+        <h2>Contas no período</h2>
+        <table class="tabela">
+          <thead><tr><th>Conta</th><th class="num opc">Saldo inicial</th><th class="num">Saldo final</th><th class="num">Diferença</th></tr></thead>
+          <tbody>
+            ${contas.map(({ c, si, sf, dif }) => `<tr><td><span class="com-selo">${selo(c, 26)} ${esc(c.nome)}</span></td><td class="num opc">${brl(si)}</td><td class="num"><b>${brl(sf)}</b></td><td class="num ${dif >= 0 ? 'pos' : 'neg'}">${dif >= 0 ? '+' : ''}${brl(dif)}</td></tr>`).join('') || '<tr><td colspan="4" class="dica">Nenhuma conta.</td></tr>'}
+          </tbody>
+          ${contas.length > 1 ? `<tfoot><tr><td>Total</td><td class="num opc">${brl(totIni)}</td><td class="num"><b>${brl(totFim)}</b></td><td class="num ${totFim - totIni >= 0 ? 'pos' : 'neg'}">${totFim - totIni >= 0 ? '+' : ''}${brl(totFim - totIni)}</td></tr></tfoot>` : ''}
+        </table>
+        ${fim > hoje() ? `<p class="dica">Saldo final considera só o que já foi pago/recebido até ${fmtData(ateHoje)}; pendências aparecem em “A receber” e “A pagar”.</p>` : ''}
+      </section>
+
+      <section class="cartao-bloco">
+        <h2>Distribuição dos gastos</h2>
+        <p class="dica">Sobre os ganhos do período. Ideal: 50% essenciais · 30% não essenciais · 20% metas.</p>
         ${GRUPOS_DESPESA.map((g) => {
-          const v = r.porGrupo.get(g) || 0;
-          const p = v / baseDistrib;
-          return `<div class="linha-grupo">
-            <div class="lg-topo"><span>${esc(g)}</span><span><b>${brl(v)}</b> · ${pct(p)} <small>(meta ${pct(META_GRUPO[g])})</small></span></div>
-            ${barra(p, META_GRUPO[g], g === 'Metas / Investimentos' ? 'barra-meta' : '')}
-          </div>`;
+          const v = r.porGrupo.get(g) || 0, p = v / base;
+          return `<div class="linha-grupo"><div class="lg-topo"><span>${esc(g)}</span><span><b>${brl(v)}</b> · ${pct(p)} <small>ideal ${pct(META_GRUPO[g])}</small></span></div>
+            ${barra(p, META_GRUPO[g], g === 'Metas / Investimentos' ? 'barra-meta' : '')}</div>`;
         }).join('')}
-        ${r.porGrupo.get('Sem categoria') ? `<div class="linha-grupo"><div class="lg-topo"><span>Sem categoria</span><b>${brl(r.porGrupo.get('Sem categoria'))}</b></div></div>` : ''}
-        <h3>Receitas por tipo</h3>
+        <h3>Ganhos por tipo</h3>
         ${GRUPOS_RECEITA.map((g) => `<div class="lg-topo"><span>${esc(g)}</span><b>${brl(r.porGrupo.get(g) || 0)}</b></div>`).join('')}
       </section>
 
       <section class="cartao-bloco">
-        <h2>Últimos 12 meses</h2>
-        ${graficoEvolucao(evolucao(S.lancs, S.categorias, S.mesRef, 12))}
-      </section>
-    </div>
-
-    <div class="grade2">
-      <section class="cartao-bloco">
-        <h2>Despesas por categoria</h2>
-        ${despCats.length === 0 ? '<p class="dica">Nenhuma despesa neste mês.</p>' : despCats.map((c) => {
-          const lim = Number(c.categoria?.valor_mensal || 0);
-          return `<a class="linha-cat" href="#/lancamentos" data-cat="${c.categoria?.id || ''}">
-            <div class="lg-topo"><span>${esc(c.categoria ? `${c.categoria.emoji} ${c.categoria.nome}` : 'Sem categoria')} <small>(${c.qtd})</small></span>
-              <span><b>${brl(c.total)}</b>${lim ? ` <small>de ${brl(lim)}</small>` : ''}</span></div>
-            ${barra(c.total, lim || despCats[0].total)}
-          </a>`;
-        }).join('')}
+        <h2>Cartões — faturas do período</h2>
+        ${faturas.map(({ c, lista, total, aberto, usado }) => `
+          <a class="linha-cartao" href="#/cartoes">
+            ${selo(c, 30)}
+            <div class="lc-meio"><b>${esc(c.nome)}</b><small>${lista.length ? lista.map((f) => `vence ${fmtData(f.venc)}${f.paga ? ' ✓' : ''}`).join(' · ') : `próxima: ${fmtData(vencimentoAtual(c))}`}</small>
+              ${barra(usado, Number(c.limite))}<small>limite usado ${brl(usado)} de ${brl(c.limite)}</small></div>
+            <div class="lc-fim"><b>${brl(total)}</b>${aberto ? `<small class="neg">em aberto ${brl(aberto)}</small>` : lista.length ? '<small class="pos">paga</small>' : ''}</div>
+          </a>`).join('') || '<p class="dica">Nenhum cartão cadastrado.</p>'}
       </section>
 
-      <section class="cartao-bloco">
-        <h2>Receitas por categoria</h2>
-        ${recCats.length === 0 ? '<p class="dica">Nenhuma receita neste mês.</p>' : recCats.map((c) => `
-          <a class="linha-cat" href="#/lancamentos" data-cat="${c.categoria?.id || ''}">
-            <div class="lg-topo"><span>${esc(c.categoria ? `${c.categoria.emoji} ${c.categoria.nome}` : 'Sem categoria')} <small>(${c.qtd})</small></span><b class="pos">${brl(c.total)}</b></div>
-          </a>`).join('')}
-
-        <h2 class="mt">Contas</h2>
-        ${saldoContas.map(({ c, s }) => `<div class="lg-topo"><span>🏦 ${esc(c.nome)}</span><b class="${s >= 0 ? '' : 'neg'}">${brl(s)}</b></div>`).join('') || '<p class="dica">Nenhuma conta cadastrada.</p>'}
-
-        <h2 class="mt">Cartões — fatura atual</h2>
-        ${S.cartoes.filter((c) => c.ativo).map((c) => {
-          const v = vencimentoAtual(c);
-          const fa = fatura(c, S.lancs, v);
-          const usado = limiteUsado(c, S.lancs);
-          return `<a class="linha-cat" href="#/cartoes"><div class="lg-topo"><span>💳 ${esc(c.nome)} <small>vence ${fmtData(v)}</small></span><b>${brl(fa.total)}</b></div>
-            ${barra(usado, Number(c.limite))}<small class="dica">Limite usado ${brl(usado)} de ${brl(c.limite)}</small></a>`;
-        }).join('') || '<p class="dica">Nenhum cartão cadastrado.</p>'}
+      <section class="cartao-bloco span2">
+        <div class="cab-lista"><h2>Últimos 12 meses</h2><a class="btn btn-peq" href="#/dashboards">Ver dashboards →</a></div>
+        ${barras(ev.map((x) => { const { y, m } = partes(x.ref + '-01'); return `${MESES_CURTOS[m - 1]}${m === 1 ? '/' + String(y).slice(2) : ''}`; }),
+          [{ nome: 'Ganhos', cor: 'var(--verde)', valores: ev.map((x) => x.receitas) }, { nome: 'Gastos', cor: 'var(--vermelho)', valores: ev.map((x) => x.despesas) }],
+          { destaque: S.mes ? 11 : -1 })}
       </section>
     </div>`;
 
   const rerender = () => render(el);
-  el.querySelectorAll('[data-mes]').forEach((b) => b.onclick = () => { S.mesRef = somarMesRef(S.mesRef, Number(b.dataset.mes)); rerender(); });
+  ligarPeriodo(el, rerender);
+  ligarCalendario(el, rerender);
   el.querySelector('[data-novo]').onclick = () => abrirFormLancamento(null, rerender);
-  el.querySelectorAll('[data-cat]').forEach((a) => a.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent('filtro-categoria', { detail: a.dataset.cat }));
-  }));
 }

@@ -4,8 +4,16 @@ import { S, recarregarLancamentos, contaPorId, nomeCategoria } from '../state.js
 import { fatura, vencimentosDoCartao, vencimentoAtual, limiteUsado, fmtData, hoje, arred } from '../calc.js';
 import { esc, brl, barra, modal, toast, comCarregando, numero } from '../ui.js';
 import { abrirFormLancamento } from './form-lancamento.js';
+import { cartaoVisual } from '../components/visual.js';
 
 const aberto = {}; // cartão id -> vencimento selecionado
+
+// total gasto no cartão no ano corrente (pelo vencimento da fatura), como na Análise Cartões da planilha
+function totalAno(c) {
+  const y = String(new Date().getFullYear());
+  return arred(S.lancs.filter((l) => l.cartao_id === c.id && l.data_pagamento.startsWith(y) && (l.tipo === 'saida' || l.tipo === 'entrada'))
+    .reduce((s, l) => s + (l.tipo === 'saida' ? 1 : -1) * Number(l.valor), 0));
+}
 
 export function render(el) {
   const cartoes = S.cartoes.filter((c) => c.ativo);
@@ -24,9 +32,18 @@ export function render(el) {
     const disp = arred(Number(c.limite) - usado);
     return `
     <section class="cartao-bloco cartao-cc" data-cartao="${c.id}">
-      <div class="cc-topo">
-        <div><h2>💳 ${esc(c.nome)}</h2><small class="dica">Fecha dia ${c.dia_fechamento} · vence dia ${c.dia_vencimento}${c.conta_pagamento_id ? ` · paga pela ${esc(contaPorId(c.conta_pagamento_id)?.nome || '')}` : ''}</small></div>
-        <button class="btn" data-lancar="${c.id}">+ Compra</button>
+      <div class="cc-cabeca">
+        ${cartaoVisual(c)}
+        <div class="cc-info">
+          <h2>${esc(c.nome)}</h2>
+          <small class="dica">Fecha dia ${c.dia_fechamento} · vence dia ${c.dia_vencimento}${c.conta_pagamento_id ? ` · paga pela ${esc(contaPorId(c.conta_pagamento_id)?.nome || '')}` : ''}</small>
+          <div class="cc-numeros">
+            <div><small>Fatura atual</small><b>${brl(fatura(c, S.lancs, atual).total)}</b></div>
+            <div><small>Disponível</small><b class="${disp >= 0 ? 'pos' : 'neg'}">${brl(disp)}</b></div>
+            <div><small>No ano ${String(new Date().getFullYear())}</small><b>${brl(totalAno(c))}</b></div>
+          </div>
+          <div class="acoes"><button class="btn btn-primario" data-lancar="${c.id}">+ Compra</button><a class="btn" href="#/cadastros" data-editar-cartao="${c.id}">🎨 Personalizar</a></div>
+        </div>
       </div>
       <div class="cc-limite">
         ${barra(usado, Number(c.limite))}
@@ -69,6 +86,7 @@ export function render(el) {
 
   const rerender = () => render(el);
   el.querySelectorAll('[data-venc]').forEach((s) => s.onchange = () => { aberto[s.dataset.venc] = s.value; rerender(); });
+  el.querySelectorAll('[data-editar-cartao]').forEach((a) => a.onclick = () => { sessionStorage.setItem('abrirCartao', a.dataset.editarCartao); });
   el.querySelectorAll('[data-lancar]').forEach((b) => b.onclick = () => abrirFormLancamento(null, rerender, { tipo: 'saida', origem: `cartao:${b.dataset.lancar}` }));
   el.querySelectorAll('.item[data-id]').forEach((it) => it.onclick = () => abrirFormLancamento(S.lancs.find((l) => l.id === it.dataset.id), rerender));
   el.querySelectorAll('[data-pagar]').forEach((b) => b.onclick = () => pagarFatura(S.cartoes.find((c) => c.id === b.dataset.pagar), b.dataset.v, rerender));

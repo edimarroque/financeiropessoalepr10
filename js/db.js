@@ -29,12 +29,14 @@ export async function sessaoAtual() {
   const { data } = await sb.auth.getSession();
   return data.session;
 }
-export function aoMudarLogin(cb) { sb.auth.onAuthStateChange((_ev, session) => cb(session)); }
+export function aoMudarLogin(cb) { sb.auth.onAuthStateChange((ev, session) => cb(session, ev)); }
 export async function entrar(email, senha) { return ok(await sb.auth.signInWithPassword({ email, password: senha })); }
 export async function cadastrar(email, senha) {
   return ok(await sb.auth.signUp({ email, password: senha, options: { emailRedirectTo: location.origin } }));
 }
 export async function sair() { await sb.auth.signOut(); }
+export async function recuperarSenha(email) { return ok(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin })); }
+export async function trocarSenha(senha) { return ok(await sb.auth.updateUser({ password: senha })); }
 
 // ---------------- Dados ----------------
 // Busca tudo, de 1000 em 1000 (limite do Supabase por consulta)
@@ -84,4 +86,8 @@ export async function excluirVarios(tabela, ids) {
   for (let i = 0; i < ids.length; i += 200) {
     ok(await sb.from(tabela).delete().in('id', ids.slice(i, i + 200)));
   }
+}
+
+export async function atualizarOnde(tabela, coluna, valor, patch) {
+  return ok(await sb.from(tabela).update(patch).eq(coluna, valor));
 }

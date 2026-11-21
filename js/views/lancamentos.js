@@ -1,7 +1,8 @@
 // Tela: Lançamentos do mês (equivale à aba Movimentações)
 import * as db from '../db.js';
 import { S, recarregarLancamentos, contaPorId, cartaoPorId, categoriaPorId, nomeCategoria } from '../state.js';
-import { mesDe, fmtData, nomeMes, somarMesRef, arred, hoje } from '../calc.js';
+import { fmtData, arred, hoje } from '../calc.js';
+import { periodoHTML, ligarPeriodo, noPeriodo, rotuloPeriodo } from '../components/periodo.js';
 import { esc, brl, toast } from '../ui.js';
 import { abrirFormLancamento } from './form-lancamento.js';
 
@@ -26,7 +27,7 @@ function rotuloTipo(l) {
 }
 
 function passaFiltro(l) {
-  if (mesDe(l.data_pagamento) !== S.mesRef) return false;
+  if (!noPeriodo(l.data_pagamento)) return false;
   if (filtros.tipo && l.tipo !== filtros.tipo) return false;
   if (filtros.categoria && l.categoria_id !== filtros.categoria) return false;
   if (filtros.origem) {
@@ -69,12 +70,9 @@ export function render(el) {
 
   el.innerHTML = `
     <div class="topo-tela">
-      <div class="nav-mes">
-        <button class="btn-icone" data-mes="-1" aria-label="Mês anterior">‹</button>
-        <h1>${nomeMes(S.mesRef)}</h1>
-        <button class="btn-icone" data-mes="1" aria-label="Próximo mês">›</button>
-      </div>
-      <button class="btn btn-primario" data-novo>+ Novo</button>
+      <h1>Lançamentos <small class="sub-h1">${esc(rotuloPeriodo())}</small></h1>
+      <div class="topo-acoes">${periodoHTML()}
+      <button class="btn btn-primario" data-novo>+ Novo</button></div>
     </div>
 
     <details class="filtros" ${Object.values(filtros).some(Boolean) ? 'open' : ''}>
@@ -103,7 +101,7 @@ export function render(el) {
 
     ${lista.length === 0 ? `
       <div class="vazio">
-        <p>Nenhum lançamento em ${nomeMes(S.mesRef)}${Object.values(filtros).some(Boolean) ? ' com esses filtros' : ''}.</p>
+        <p>Nenhum lançamento em ${esc(rotuloPeriodo())}${Object.values(filtros).some(Boolean) ? ' com esses filtros' : ''}.</p>
         <button class="btn btn-primario" data-novo>Lançar agora</button>
       </div>` : ''}
 
@@ -135,8 +133,10 @@ export function render(el) {
     </div>`;
 
   const rerender = () => render(el);
-  el.querySelectorAll('[data-mes]').forEach((b) => b.onclick = () => { S.mesRef = somarMesRef(S.mesRef, Number(b.dataset.mes)); rerender(); });
-  el.querySelectorAll('[data-novo]').forEach((b) => b.onclick = () => abrirFormLancamento(null, rerender, { data: S.mesRef === hoje().slice(0, 7) ? undefined : S.mesRef + '-01' }));
+  ligarPeriodo(el, rerender);
+  const mm = String(S.mes || 1).padStart(2, '0');
+  const dataPadrao = `${S.ano}-${mm}` === hoje().slice(0, 7) || (!S.mes && String(S.ano) === hoje().slice(0, 4)) ? undefined : `${S.ano}-${mm}-01`;
+  el.querySelectorAll('[data-novo]').forEach((b) => b.onclick = () => abrirFormLancamento(null, rerender, { data: dataPadrao }));
   el.querySelectorAll('[data-f]').forEach((i) => {
     const ev = i.tagName === 'INPUT' ? 'input' : 'change';
     i.addEventListener(ev, () => {

@@ -178,3 +178,39 @@ grant select on public.historico to authenticated;
 revoke all on public.contas, public.cartoes, public.categorias, public.lotes_importacao, public.lancamentos, public.historico from anon;
 -- a função do histórico só roda pelo gatilho, nunca chamada direto pela API
 revoke execute on function public.fn_historico() from public, anon, authenticated;
+
+-- =====================================================================
+-- v1.2.0 — perfil com foto e personalização de contas/cartões
+-- =====================================================================
+create table if not exists public.perfis (
+  user_id    uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  nome       text not null default '',
+  foto       text,
+  updated_at timestamptz not null default now(),
+  constraint foto_tamanho check (foto is null or length(foto) <= 400000)
+);
+alter table public.perfis enable row level security;
+drop policy if exists "dono_select" on public.perfis;
+drop policy if exists "dono_insert" on public.perfis;
+drop policy if exists "dono_update" on public.perfis;
+drop policy if exists "dono_delete" on public.perfis;
+create policy "dono_select" on public.perfis for select using (user_id = auth.uid());
+create policy "dono_insert" on public.perfis for insert with check (user_id = auth.uid());
+create policy "dono_update" on public.perfis for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "dono_delete" on public.perfis for delete using (user_id = auth.uid());
+grant select, insert, update, delete on public.perfis to authenticated;
+revoke all on public.perfis from anon;
+
+alter table public.contas  add column if not exists icone  text not null default '🏦';
+alter table public.contas  add column if not exists cor    text not null default '#2563eb';
+alter table public.contas  add column if not exists imagem text;
+alter table public.cartoes add column if not exists icone  text not null default '💳';
+alter table public.cartoes add column if not exists cor    text not null default '#0f172a';
+alter table public.cartoes add column if not exists imagem text;
+alter table public.cartoes add column if not exists final  text not null default '';
+alter table public.contas  drop constraint if exists contas_imagem_tamanho;
+alter table public.contas  add constraint contas_imagem_tamanho check (imagem is null or length(imagem) <= 200000);
+alter table public.cartoes drop constraint if exists cartoes_imagem_tamanho;
+alter table public.cartoes add constraint cartoes_imagem_tamanho check (imagem is null or length(imagem) <= 200000);
+alter table public.cartoes drop constraint if exists cartoes_final_formato;
+alter table public.cartoes add constraint cartoes_final_formato check (final ~ '^[0-9]{0,4}$');

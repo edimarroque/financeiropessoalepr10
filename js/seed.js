@@ -4,10 +4,12 @@ import { hoje } from './calc.js';
 
 export const CONTAS = ['conta itau salario', 'conta itau pessoal', 'conta Ticket Alimentação', 'Dinheiro'];
 
+const VISUAL_CONTA = (n) => (/dinheiro/i.test(n) ? { icone: '💵', cor: '#16a34a' } : /ticket/i.test(n) ? { icone: '🍽️', cor: '#e11d48' } : /ita/i.test(n) ? { icone: '🏦', cor: '#ec7000' } : { icone: '🏦', cor: '#2563eb' });
+
 export const CARTOES = [
-  { nome: 'Cartão XP', dia_fechamento: 7, dia_vencimento: 15, limite: 39265.86 },
-  { nome: 'Cartão Itau', dia_fechamento: 5, dia_vencimento: 15, limite: 12000 },
-  { nome: 'Cartão Alimentação', dia_fechamento: 1, dia_vencimento: 30, limite: 1550 },
+  { nome: 'Cartão XP', dia_fechamento: 7, dia_vencimento: 15, limite: 39265.86, cor: '#111827', icone: '💳' },
+  { nome: 'Cartão Itau', dia_fechamento: 5, dia_vencimento: 15, limite: 12000, cor: '#ec7000', icone: '💳' },
+  { nome: 'Cartão Alimentação', dia_fechamento: 1, dia_vencimento: 30, limite: 1550, cor: '#e11d48', icone: '🍽️' },
 ];
 
 export const DESPESAS = [
@@ -59,7 +61,7 @@ export const RECEITAS = [
 export async function carregarCadastrosPadrao(S) {
   const nomesContas = new Set(S.contas.map((c) => c.nome.toLowerCase()));
   const contas = CONTAS.filter((n) => !nomesContas.has(n.toLowerCase()))
-    .map((nome) => ({ nome, saldo_inicial: 0, data_saldo: hoje() }));
+    .map((nome) => ({ nome, saldo_inicial: 0, data_saldo: hoje(), ...VISUAL_CONTA(nome) }));
   const novasContas = contas.length ? await db.inserir('contas', contas) : [];
   const todasContas = [...S.contas, ...novasContas];
   const contaSalario = todasContas.find((c) => c.nome === 'conta itau salario');

@@ -1,8 +1,9 @@
 // Tela: Mais — exportar dados, backup, conta, sair
 import * as db from '../db.js';
-import { S, contaPorId, cartaoPorId, categoriaPorId } from '../state.js';
+import { S, contaPorId, cartaoPorId, categoriaPorId, nomeUsuario, recarregarPerfil } from '../state.js';
 import { fmtData, hoje } from '../calc.js';
-import { esc, toast } from '../ui.js';
+import { esc, toast, modal, comCarregando } from '../ui.js';
+import { reduzirImagem } from '../components/visual.js';
 import { VERSAO } from '../config.js';
 
 function baixar(nome, conteudo, tipo) {
@@ -39,14 +40,59 @@ export function backupJSON() {
   toast('Backup gerado.');
 }
 
+export function avatarHTML(tam = 40) {
+  const p = S.perfil;
+  if (p && p.foto) return `<span class="avatar" style="width:${tam}px;height:${tam}px"><img src="${esc(p.foto)}" alt=""></span>`;
+  const n = nomeUsuario();
+  return `<span class="avatar avatar-letra" style="width:${tam}px;height:${tam}px;font-size:${Math.round(tam * 0.42)}px">${esc((n[0] || '?').toUpperCase())}</span>`;
+}
+
+export function abrirPerfil(aoSalvar) {
+  const p = S.perfil || {};
+  modal('Meu perfil', `
+    <form class="form">
+      <div class="perfil-foto"><div data-prev>${avatarHTML(96)}</div>
+        <div class="acoes"><label class="btn btn-peq vc-upload">📷 Escolher foto<input type="file" accept="image/*" data-foto></label>
+        <button type="button" class="btn btn-peq" data-tirar ${p.foto ? '' : 'hidden'}>Remover</button></div></div>
+      <label>Como quer ser chamado <input name="nome" maxlength="60" value="${esc(p.nome || '')}" placeholder="${esc(nomeUsuario())}"></label>
+      <input type="hidden" name="foto" value="${esc(p.foto || '')}">
+      <p class="dica">A foto é reduzida para 256×256 antes de salvar.</p>
+      <div class="acoes"><span class="espaco"></span><button class="btn btn-primario">Salvar</button></div>
+    </form>`, (el, fechar) => {
+    const f = el.querySelector('form');
+    const prev = () => { el.querySelector('[data-prev]').innerHTML = f.foto.value ? `<span class="avatar" style="width:96px;height:96px"><img src="${esc(f.foto.value)}" alt=""></span>` : avatarHTML(96); el.querySelector('[data-tirar]').hidden = !f.foto.value; };
+    el.querySelector('[data-foto]').onchange = async (e) => {
+      try { f.foto.value = await reduzirImagem(e.target.files[0], 256, 'image/jpeg', true); prev(); } catch (err) { toast(err.message, 'erro'); }
+    };
+    el.querySelector('[data-tirar]').onclick = () => { f.foto.value = ''; prev(); };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const dados = { nome: f.nome.value.trim(), foto: f.foto.value || null, updated_at: new Date().toISOString() };
+      await comCarregando(f.querySelector('.btn-primario'), async () => {
+        if (S.perfil) await db.atualizarOnde('perfis', 'user_id', S.user.id, dados);
+        else await db.inserir('perfis', [dados]);
+        await recarregarPerfil();
+      });
+      toast('Perfil salvo.'); fechar(); aoSalvar && aoSalvar();
+    };
+  });
+}
+
 export function render(el) {
   el.innerHTML = `
     <div class="topo-tela"><h1>Mais</h1></div>
-    <section class="cartao-bloco">
-      <h2>Cadastros</h2>
-      <p class="dica">Contas, cartões e categorias.</p>
-      <a class="btn" href="#/cadastros">⚙️ Abrir cadastros</a>
+    <section class="cartao-bloco perfil-cartao">
+      ${avatarHTML(64)}
+      <div class="espaco"><b>${esc(nomeUsuario())}</b><small class="dica">${esc(S.user?.email || '')}</small></div>
+      <button class="btn" data-perfil>✏️ Editar perfil</button>
     </section>
+    <div class="atalhos">
+      <a href="#/importar"><span>📥</span>Importar</a>
+      <a href="#/cadastros"><span>⚙️</span>Cadastros</a>
+      <a href="#/dashboards"><span>📊</span>Dashboards</a>
+      <a href="#/ajuda"><span>❓</span>Como usar</a>
+      <a href="#/novidades"><span>✨</span>Novidades <small>v${VERSAO}</small></a>
+    </div>
     <section class="cartao-bloco">
       <h2>Seus dados</h2>
       <p class="dica">${S.lancs.length} lançamentos · ${S.contas.length} contas · ${S.cartoes.length} cartões · ${S.categorias.length} categorias</p>
@@ -56,18 +102,10 @@ export function render(el) {
       </div>
     </section>
     <section class="cartao-bloco">
-      <h2>Em breve</h2>
-      <ul class="lista-simples">
-        <li>📄 Leitura ajustada para os PDFs do XP e do Itaú</li>
-        <li>🎯 Metas financeiras e investimentos</li>
-      </ul>
-    </section>
-    <section class="cartao-bloco">
-      <h2>Conta</h2>
-      <p>Conectado como <b>${esc(S.user?.email || '')}</b></p>
-      <button class="btn btn-perigo" data-sair>Sair</button>
+      <button class="btn btn-perigo" data-sair>🚪 Sair</button>
       <p class="dica mt">Versão ${VERSAO}</p>
     </section>`;
+  el.querySelector('[data-perfil]').onclick = () => abrirPerfil(() => { render(el); window.dispatchEvent(new Event('perfil-mudou')); });
   el.querySelector('[data-csv]').onclick = exportarCSV;
   el.querySelector('[data-json]').onclick = backupJSON;
   el.querySelector('[data-sair]').onclick = async () => { await db.sair(); };

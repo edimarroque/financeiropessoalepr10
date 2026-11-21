@@ -4,6 +4,7 @@ import { S, recarregarCadastros } from '../state.js';
 import { saldoConta, fmtData, hoje, GRUPOS_DESPESA, GRUPOS_RECEITA } from '../calc.js';
 import { esc, brl, numero, modal, toast, confirmar, comCarregando } from '../ui.js';
 import { carregarCadastrosPadrao } from '../seed.js';
+import { camposVisual, ligarCamposVisual, selo, abrirEmojis, cartaoVisual } from '../components/visual.js';
 
 let aba = 'contas';
 
@@ -12,6 +13,8 @@ function emUso(campo, id) {
 }
 
 export function render(el) {
+  const pedido = sessionStorage.getItem('abrirCartao');
+  if (pedido) { sessionStorage.removeItem('abrirCartao'); aba = 'cartoes'; }
   const vazio = !S.contas.length && !S.cartoes.length && !S.categorias.length;
   el.innerHTML = `
     <div class="topo-tela"><h1>Cadastros</h1>
@@ -36,7 +39,11 @@ export function render(el) {
   };
 
   if (aba === 'contas') renderContas(cont, rerender);
-  else if (aba === 'cartoes') renderCartoes(cont, rerender);
+  else if (aba === 'cartoes') {
+    renderCartoes(cont, rerender);
+    const c = pedido && S.cartoes.find((x) => x.id === pedido);
+    if (c) formCartao(c, rerender);
+  }
   else renderCategorias(cont, aba, rerender);
 }
 
@@ -49,7 +56,7 @@ function renderContas(el, rerender) {
       <thead><tr><th>Conta</th><th class="num opc">Saldo inicial</th><th class="opc">Em</th><th class="num">Saldo hoje</th><th></th></tr></thead>
       <tbody>${S.contas.map((c) => `
         <tr class="clicavel ${c.ativo ? '' : 'inativo'}" data-linha="${c.id}">
-          <td>🏦 ${esc(c.nome)}${c.ativo ? '' : ' <small>(inativa)</small>'}</td>
+          <td><span class="com-selo">${selo(c, 28)} ${esc(c.nome)}</span>${c.ativo ? '' : ' <small>(inativa)</small>'}</td>
           <td class="num opc">${brl(c.saldo_inicial)}</td><td class="opc">${fmtData(c.data_saldo)}</td>
           <td class="num"><b>${brl(saldoConta(c, S.lancs, hoje()))}</b></td>
           <td class="num"><span class="btn-icone" aria-hidden="true">✎</span></td>
@@ -63,6 +70,7 @@ function formConta(c, rerender) {
   modal(c ? 'Editar conta' : 'Nova conta', `
     <form class="form">
       <label>Nome <input name="nome" required maxlength="80" value="${esc(c?.nome || '')}"></label>
+      ${camposVisual(c, { iconePadrao: '🏦' })}
       <div class="linha2">
         <label>Saldo inicial <input name="saldo" inputmode="decimal" value="${c ? String(c.saldo_inicial).replace('.', ',') : '0,00'}"></label>
         <label>Saldo na data <input type="date" name="data" required value="${c?.data_saldo || hoje()}"></label>
@@ -72,12 +80,14 @@ function formConta(c, rerender) {
       <div class="acoes">${c ? '<button type="button" class="btn btn-perigo" data-excluir>Excluir</button>' : ''}<span class="espaco"></span><button class="btn btn-primario">Salvar</button></div>
     </form>`, (el, fechar) => {
     const f = el.querySelector('form');
+    ligarCamposVisual(f);
     f.onsubmit = async (e) => {
       e.preventDefault();
       const saldo = numero(f.saldo.value);
       if (!f.nome.value.trim()) return toast('Informe o nome.', 'erro');
       if (!Number.isFinite(saldo)) return toast('Saldo inválido.', 'erro');
-      const dados = { nome: f.nome.value.trim(), saldo_inicial: saldo, data_saldo: f.data.value, ativo: c ? f.ativo.checked : true };
+      const dados = { nome: f.nome.value.trim(), saldo_inicial: saldo, data_saldo: f.data.value, ativo: c ? f.ativo.checked : true,
+        cor: f.cor.value, icone: f.icone.value || '🏦', imagem: f.imagem.value || null };
       await comCarregando(f.querySelector('.btn-primario'), async () => {
         c ? await db.atualizar('contas', c.id, dados) : await db.inserir('contas', dados);
         await recarregarCadastros();
@@ -98,7 +108,7 @@ function renderCartoes(el, rerender) {
       <thead><tr><th>Cartão</th><th class="num">Fecha</th><th class="num">Vence</th><th class="num opc">Limite</th><th class="opc">Paga pela</th><th></th></tr></thead>
       <tbody>${S.cartoes.map((c) => `
         <tr class="clicavel ${c.ativo ? '' : 'inativo'}" data-linha="${c.id}">
-          <td>💳 ${esc(c.nome)}${c.ativo ? '' : ' <small>(inativo)</small>'}</td><td class="num">dia ${c.dia_fechamento}</td><td class="num">dia ${c.dia_vencimento}</td>
+          <td><span class="com-selo">${selo(c, 28)} ${esc(c.nome)}${c.final ? ` <small>•••• ${esc(c.final)}</small>` : ''}</span>${c.ativo ? '' : ' <small>(inativo)</small>'}</td><td class="num">dia ${c.dia_fechamento}</td><td class="num">dia ${c.dia_vencimento}</td>
           <td class="num opc">${brl(c.limite)}</td><td class="opc">${esc(S.contas.find((x) => x.id === c.conta_pagamento_id)?.nome || '—')}</td>
           <td class="num"><span class="btn-icone" aria-hidden="true">✎</span></td>
         </tr>`).join('') || '<tr><td colspan="6" class="dica">Nenhum cartão.</td></tr>'}</tbody>
@@ -110,7 +120,10 @@ function renderCartoes(el, rerender) {
 function formCartao(c, rerender) {
   modal(c ? 'Editar cartão' : 'Novo cartão', `
     <form class="form">
+      <div class="cc-previa" data-cc-previa>${cartaoVisual(c || { nome: 'Novo cartão', dia_fechamento: '?', dia_vencimento: '?' }, { pequeno: true })}</div>
       <label>Nome <input name="nome" required maxlength="80" value="${esc(c?.nome || '')}"></label>
+      <label>4 últimos dígitos (opcional) <input name="final" inputmode="numeric" maxlength="4" pattern="[0-9]{0,4}" value="${esc(c?.final || '')}"></label>
+      ${camposVisual(c, { iconePadrao: '💳' })}
       <div class="linha3">
         <label>Dia do fechamento <input type="number" name="fech" min="1" max="31" required value="${c?.dia_fechamento || ''}"></label>
         <label>Dia do vencimento <input type="number" name="venc" min="1" max="31" required value="${c?.dia_vencimento || ''}"></label>
@@ -123,13 +136,18 @@ function formCartao(c, rerender) {
       <div class="acoes">${c ? '<button type="button" class="btn btn-perigo" data-excluir>Excluir</button>' : ''}<span class="espaco"></span><button class="btn btn-primario">Salvar</button></div>
     </form>`, (el, fechar) => {
     const f = el.querySelector('form');
+    const previa = () => { el.querySelector('[data-cc-previa]').innerHTML = cartaoVisual({ nome: f.nome.value || 'Cartão', final: f.final.value, dia_fechamento: f.fech.value || '?', dia_vencimento: f.venc.value || '?', cor: f.cor.value, icone: f.icone.value, imagem: f.imagem.value }, { pequeno: true }); };
+    ligarCamposVisual(f, previa);
+    ['nome', 'final', 'fech', 'venc'].forEach((n) => f[n].addEventListener('input', previa));
     f.onsubmit = async (e) => {
       e.preventDefault();
       const fech = Number(f.fech.value), venc = Number(f.venc.value), lim = numero(f.limite.value || '0');
       if (!f.nome.value.trim()) return toast('Informe o nome.', 'erro');
       if (!(fech >= 1 && fech <= 31 && venc >= 1 && venc <= 31)) return toast('Dias de fechamento e vencimento devem estar entre 1 e 31.', 'erro');
       if (!Number.isFinite(lim)) return toast('Limite inválido.', 'erro');
-      const dados = { nome: f.nome.value.trim(), dia_fechamento: fech, dia_vencimento: venc, limite: lim, conta_pagamento_id: f.conta.value || null, ativo: c ? f.ativo.checked : true };
+      if (!/^[0-9]{0,4}$/.test(f.final.value)) return toast('Os últimos dígitos devem ter até 4 números.', 'erro');
+      const dados = { nome: f.nome.value.trim(), dia_fechamento: fech, dia_vencimento: venc, limite: lim, conta_pagamento_id: f.conta.value || null, ativo: c ? f.ativo.checked : true,
+        final: f.final.value, cor: f.cor.value, icone: f.icone.value || '💳', imagem: f.imagem.value || null };
       await comCarregando(f.querySelector('.btn-primario'), async () => {
         c ? await db.atualizar('cartoes', c.id, dados) : await db.inserir('cartoes', dados);
         await recarregarCadastros();
@@ -166,7 +184,7 @@ function formCategoria(c, tipo, rerender) {
   modal(c ? 'Editar categoria' : `Nova categoria de ${tipo}`, `
     <form class="form">
       <div class="linha-emoji">
-        <label>Ícone <input name="emoji" maxlength="8" value="${esc(c?.emoji || (tipo === 'despesa' ? '🔹' : '💲'))}"></label>
+        <label>Ícone <span class="emoji-campo"><input name="emoji" maxlength="8" value="${esc(c?.emoji || (tipo === 'despesa' ? '🔹' : '💲'))}"><button type="button" class="btn btn-peq" data-escolher-emoji aria-label="Escolher emoji">😀</button></span></label>
         <label>Nome <input name="nome" required maxlength="80" value="${esc(c?.nome || '')}"></label>
       </div>
       <div class="linha2">
@@ -177,6 +195,7 @@ function formCategoria(c, tipo, rerender) {
       <div class="acoes">${c ? '<button type="button" class="btn btn-perigo" data-excluir>Excluir</button>' : ''}<span class="espaco"></span><button class="btn btn-primario">Salvar</button></div>
     </form>`, (el, fechar) => {
     const f = el.querySelector('form');
+    el.querySelector('[data-escolher-emoji]').onclick = (e) => abrirEmojis(e.currentTarget, (em) => { f.emoji.value = em; });
     f.onsubmit = async (e) => {
       e.preventDefault();
       const v = numero(f.valor.value || '0');

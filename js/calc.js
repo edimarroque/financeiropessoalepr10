@@ -202,3 +202,92 @@ export function evolucao(lancs, categorias, ref, n = 12) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------
+// v1.2 — período por ano/mês, resumos por intervalo e análises
+// ---------------------------------------------------------------------
+export const MESES_CURTOS = MESES.map((m) => m.slice(0, 3));
+export const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+/** Intervalo de datas de um período. mes = 1..12, ou 0 para o ano inteiro */
+export function intervalo(ano, mes) {
+  if (!mes) return { ini: `${ano}-01-01`, fim: `${ano}-12-31` };
+  return { ini: montar(ano, mes, 1), fim: montar(ano, mes, 31) };
+}
+
+export function periodoAnterior(ano, mes) {
+  if (!mes) return { ano: ano - 1, mes: 0 };
+  return mes === 1 ? { ano: ano - 1, mes: 12 } : { ano, mes: mes - 1 };
+}
+
+export function diaAnterior(iso) {
+  const { y, m, d } = partes(iso);
+  const t = new Date(Date.UTC(y, m - 1, d - 1));
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+
+export function diasEntre(ini, fim) {
+  const a = partes(ini), b = partes(fim);
+  return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86400000) + 1;
+}
+
+/** Resumo de um intervalo [ini, fim] pela data de pagamento */
+export function resumoIntervalo(lancs, categorias, ini, fim) {
+  const r = resumoMes(lancs.filter((l) => l.data_pagamento >= ini && l.data_pagamento <= fim)
+    .map((l) => ({ ...l, data_pagamento: '0000-00-01' })), categorias, '0000-00');
+  r.aReceber = arred(lancs.filter((l) => l.tipo === 'entrada' && l.situacao === 'pendente' && l.data_pagamento >= ini && l.data_pagamento <= fim).reduce((s, l) => s + Number(l.valor), 0));
+  r.aPagar = arred(lancs.filter((l) => l.tipo === 'saida' && l.situacao === 'pendente' && l.data_pagamento >= ini && l.data_pagamento <= fim).reduce((s, l) => s + Number(l.valor), 0));
+  return r;
+}
+
+/** Total por categoria em cada mês do ano: Map(categoria_id|'sem-saida') -> [12 valores] */
+export function matrizAnual(lancs, ano) {
+  const m = new Map();
+  for (const l of lancs) {
+    if (l.tipo !== 'entrada' && l.tipo !== 'saida') continue;
+    const { y, m: mes } = partes(l.data_pagamento);
+    if (y !== ano) continue;
+    const k = l.categoria_id || ('sem-' + l.tipo);
+    if (!m.has(k)) m.set(k, { tipo: l.tipo, meses: Array(12).fill(0) });
+    m.get(k).meses[mes - 1] += Number(l.valor);
+  }
+  for (const v of m.values()) v.meses = v.meses.map(arred);
+  return m;
+}
+
+/** Soma de despesas e receitas por dia (data da compra/movimento) de um mês */
+export function porDia(lancs, ano, mes) {
+  const pref = `${ano}-${pad(mes)}-`;
+  const dias = new Map();
+  for (const l of lancs) {
+    if (!l.data_movimento.startsWith(pref)) continue;
+    if (l.tipo !== 'entrada' && l.tipo !== 'saida') continue;
+    const d = Number(l.data_movimento.slice(8, 10));
+    if (!dias.has(d)) dias.set(d, { gastos: 0, ganhos: 0, itens: [] });
+    const x = dias.get(d);
+    if (l.tipo === 'saida') x.gastos += Number(l.valor); else x.ganhos += Number(l.valor);
+    x.itens.push(l);
+  }
+  for (const x of dias.values()) { x.gastos = arred(x.gastos); x.ganhos = arred(x.ganhos); }
+  return dias;
+}
+
+/** Agrupa despesas do intervalo por uma chave (função) e devolve ordenado */
+export function agrupar(lancs, ini, fim, chave, tipo = 'saida') {
+  const m = new Map();
+  for (const l of lancs) {
+    if (l.tipo !== tipo || l.data_pagamento < ini || l.data_pagamento > fim) continue;
+    const k = chave(l);
+    if (k == null) continue;
+    const x = m.get(k) || { chave: k, total: 0, qtd: 0 };
+    x.total += Number(l.valor); x.qtd++;
+    m.set(k, x);
+  }
+  return [...m.values()].map((x) => ({ ...x, total: arred(x.total) })).sort((a, b) => b.total - a.total);
+}
+
+/** Variação percentual (null se não houver base) */
+export function variacao(atual, anterior) {
+  if (!anterior) return null;
+  return (atual - anterior) / Math.abs(anterior);
+}

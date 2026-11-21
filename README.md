@@ -47,6 +47,11 @@ sw.js / manifest      instalação como app
   bloqueio de duplicados (cada linha tem uma chave única) e **Desfazer** por importação.
 - pdf.js fica em `vendor/pdfjs` (licença Apache 2.0), servido pelo próprio site.
 
+## Versões
+
+O número da versão fica em `js/config.js` (VERSAO) e o histórico em `js/versoes.js` — ele aparece na tela **Novidades** do app.
+A cada ajuste: atualizar os dois, e o `CACHE` do `sw.js`.
+
 ## Próximas etapas
 
 - Ajustar a leitura para os PDFs reais do XP e do Itaú
