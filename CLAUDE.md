@@ -45,8 +45,10 @@ não vai para o Git (dados reais): gerar com `python3 tests/migrar.py planilha.x
 
 ## Armazenamento (decidido em 21/11/2026)
 - **Supabase banco:** todos os dados e imagens pequenas (avatar, logos de contas/cartões como data URL).
-- **Supabase Storage (1 GB grátis):** bucket privado `comprovantes` com RLS por usuário; foto reduzida (~150 KB, máx. 1600 px)
-  + miniatura; exibir com URL assinada. Ao passar de ~800 MB, comprovantes com mais de 2 anos ficam só no Drive (manter miniatura).
+- **Supabase Storage (1 GB grátis):** bucket privado `comprovantes` com RLS por usuário; exibir com URL assinada.
+  Compactação no navegador antes do envio: foto → WebP qualidade ~0,8, lado maior 1600 px (~120–200 KB) + miniatura 320 px (~15 KB);
+  original vai só para o Drive. PDF ≤ 1 MB vai como está + miniatura da 1ª página (pdf.js); PDF > 1 MB só no Drive (Supabase guarda miniatura).
+  HEIC que o navegador não decodificar: avisar e mandar o original só para o Drive. Ao passar de ~800 MB, comprovantes com mais de 2 anos ficam só no Drive (manter miniatura).
 - **Google Drive do usuário (2 TB, pago):** arquivo e exportações — relatório mensal PDF, PDF original das faturas importadas,
   backup semanal (JSON + CSV) e original de cada comprovante. Pastas: `Financeiro Pessoal/AAAA/MM - Mês/{Comprovantes,Faturas,Relatórios}`
   e `Financeiro Pessoal/Backups`. Usar OAuth do Google com escopo `drive.file` (só arquivos criados pelo app);
