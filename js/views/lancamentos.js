@@ -6,7 +6,13 @@ import { periodoHTML, ligarPeriodo, noPeriodo, rotuloPeriodo } from '../componen
 import { esc, brl, toast } from '../ui.js';
 import { abrirFormLancamento } from './form-lancamento.js';
 
-const filtros = { tipo: '', categoria: '', origem: '', situacao: '', texto: '' };
+const filtros = { tipo: '', categoria: '', origem: '', situacao: '', texto: '', tag: '', lote: '' };
+
+// vindo de Importar: mostra só os lançamentos daquela importação (em qualquer mês)
+window.addEventListener('filtro-lote', (e) => {
+  Object.keys(filtros).forEach((k) => filtros[k] = '');
+  filtros.lote = e.detail || '';
+});
 
 // vindo do Painel: abre a lista já filtrada pela categoria clicada
 window.addEventListener('filtro-categoria', (e) => {
@@ -27,7 +33,9 @@ function rotuloTipo(l) {
 }
 
 function passaFiltro(l) {
+  if (filtros.lote) return l.lote_id === filtros.lote;
   if (!noPeriodo(l.data_pagamento)) return false;
+  if (filtros.tag && !(l.tags || []).includes(filtros.tag)) return false;
   if (filtros.tipo && l.tipo !== filtros.tipo) return false;
   if (filtros.categoria && l.categoria_id !== filtros.categoria) return false;
   if (filtros.origem) {
@@ -38,7 +46,7 @@ function passaFiltro(l) {
   if (filtros.situacao && l.situacao !== filtros.situacao) return false;
   if (filtros.texto) {
     const t = filtros.texto.toLowerCase();
-    const alvo = `${l.descricao} ${nomeCategoria(l.categoria_id)} ${l.valor}`.toLowerCase();
+    const alvo = `${l.descricao} ${nomeCategoria(l.categoria_id)} ${l.valor} ${(l.tags || []).map((t) => '#' + t).join(' ')}`.toLowerCase();
     if (!alvo.includes(t)) return false;
   }
   return true;
@@ -63,6 +71,7 @@ export function render(el) {
 
   const optCat = S.categorias.slice().sort((a, b) => a.tipo.localeCompare(b.tipo) || a.nome.localeCompare(b.nome))
     .map((c) => `<option value="${c.id}" ${filtros.categoria === c.id ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.nome)}</option>`).join('');
+  const todasTags = [...new Set(S.lancs.flatMap((l) => l.tags || []))].sort();
   const optOrig = [
     ...S.contas.map((c) => [`conta:${c.id}`, `🏦 ${c.nome}`]),
     ...S.cartoes.map((c) => [`cartao:${c.id}`, `💳 ${c.nome}`]),
@@ -88,10 +97,12 @@ export function render(el) {
         <select data-f="situacao"><option value="">Qualquer situação</option>
           ${[['pago', 'Pago'], ['recebido', 'Recebido'], ['pendente', 'Pendente']].map(([v, r]) => `<option value="${v}" ${filtros.situacao === v ? 'selected' : ''}>${r}</option>`).join('')}
         </select>
+        ${todasTags.length ? `<select data-f="tag"><option value="">Todas as tags</option>${todasTags.map((t) => `<option value="${esc(t)}" ${filtros.tag === t ? 'selected' : ''}>#${esc(t)}</option>`).join('')}</select>` : ''}
         <button class="btn" data-limpar>Limpar filtros</button>
       </div>
     </details>
 
+    ${filtros.lote ? `<div class="aviso">📥 Mostrando só os lançamentos de uma importação (todos os meses). <button class="btn-link" data-limpar>Mostrar todos</button></div>` : ''}
     <div class="resumo-linha">
       <div><small>Receitas</small><b class="pos">${brl(ent)}</b></div>
       <div><small>Despesas</small><b class="neg">${brl(sai)}</b></div>
@@ -118,7 +129,7 @@ export function render(el) {
           <div class="item" data-id="${l.id}" tabindex="0" role="button">
             <div class="item-icone">${esc(icone)}</div>
             <div class="item-meio">
-              <div class="item-titulo">${esc(titulo)} ${l.parcela_total ? `<span class="pill">${l.parcela_num}/${l.parcela_total}</span>` : ''}</div>
+              <div class="item-titulo">${esc(titulo)} ${l.parcela_total ? `<span class="pill">${l.parcela_num}/${l.parcela_total}</span>` : ''}${l.recorrente_id ? ' <span class="pill" title="Recorrente">🔁</span>' : ''}${(l.tags || []).map((t) => ` <span class="tag">#${esc(t)}</span>`).join('')}</div>
               <div class="item-sub">${esc(cat ? cat.nome : rotuloTipo(l))} · ${esc(origemTexto(l))}${l.data_pagamento !== l.data_movimento ? ` · paga em ${fmtData(l.data_pagamento)}` : ''}</div>
             </div>
             <div class="item-fim">
@@ -145,8 +156,7 @@ export function render(el) {
       else rerender();
     });
   });
-  const lim = el.querySelector('[data-limpar]');
-  if (lim) lim.onclick = () => { Object.keys(filtros).forEach((k) => filtros[k] = ''); rerender(); };
+  el.querySelectorAll('[data-limpar]').forEach((lim) => lim.onclick = () => { Object.keys(filtros).forEach((k) => filtros[k] = ''); rerender(); });
 
   el.querySelectorAll('.item').forEach((it) => {
     const abrir = () => abrirFormLancamento(S.lancs.find((l) => l.id === it.dataset.id), rerender);

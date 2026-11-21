@@ -1,7 +1,8 @@
 // Supabase simulado em memória, só para testes locais
-const tabelas = { contas: [], cartoes: [], categorias: [], lancamentos: [], lotes_importacao: [], perfis: [], sugestoes: [] };
+const tabelas = { contas: [], cartoes: [], categorias: [], lancamentos: [], lotes_importacao: [], perfis: [], sugestoes: [], recorrentes: [], regras_categoria: [] };
 window.__db = tabelas;
 let session = null;
+try { session = JSON.parse(sessionStorage.getItem('mockSessao') || 'null'); } catch { /* */ }
 const ouvintes = [];
 const uid = 'user-1';
 
@@ -52,13 +53,14 @@ export function createClient() {
       signInWithPassword: async ({ email, password }) => {
         if (password !== 'senha123') return { data: null, error: { message: 'Invalid login credentials' } };
         session = { user: { id: uid, email }, access_token: 'tok-teste' };
+        sessionStorage.setItem('mockSessao', JSON.stringify(session));
         setTimeout(() => ouvintes.forEach((cb) => cb('SIGNED_IN', session)));
         return { data: { session }, error: null };
       },
       signUp: async () => ({ data: { session: null, user: {} }, error: null }),
       resetPasswordForEmail: async () => ({ data: {}, error: null }),
       updateUser: async () => ({ data: {}, error: null }),
-      signOut: async () => { session = null; ouvintes.forEach((cb) => cb('SIGNED_OUT', null)); },
+      signOut: async () => { session = null; sessionStorage.removeItem('mockSessao'); ouvintes.forEach((cb) => cb('SIGNED_OUT', null)); },
     },
   };
 }

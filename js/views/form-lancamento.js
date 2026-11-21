@@ -3,6 +3,26 @@ import * as db from '../db.js';
 import { S, recarregarLancamentos, cartaoPorId } from '../state.js';
 import { hoje, gerarParcelas, situacaoPadrao, vencimentoDaCompra, fmtData, arred } from '../calc.js';
 import { esc, brl, numero, modal, toast, confirmar, comCarregando } from '../ui.js';
+import { sugerir } from '../categorizar.js';
+import { recarregarExtras } from '../state.js';
+import { orcamentoCategorias, intervalo, partes } from '../calc.js';
+import { sincronizarRecorrentes } from '../servicos/recorrentes.js';
+
+/** "#viagem, reforma #Casa" → ['viagem','reforma','casa'] */
+export function lerTags(txt) {
+  return [...new Set(String(txt || '').split(/[\s,;]+/).map((t) => t.replace(/^#+/, '').trim().toLowerCase()).filter((t) => t && t.length <= 30))].slice(0, 10);
+}
+
+/** Avisa quando a categoria passa de 80% ou 100% do limite mensal */
+export function avisarOrcamento(categoriaId, dataPag) {
+  const cat = S.categorias.find((c) => c.id === categoriaId);
+  if (!cat || cat.tipo !== 'despesa' || !(Number(cat.valor_mensal) > 0) || !dataPag) return;
+  const { y, m } = partes(dataPag);
+  const { ini, fim } = intervalo(y, m);
+  const o = orcamentoCategorias(S.lancs, [cat], ini, fim)[0];
+  if (!o || o.nivel === 'ok') return;
+  toast(`${o.nivel === 'estourou' ? '🚨' : '⚠️'} ${cat.emoji || ''} ${cat.nome}: ${Math.round(o.p * 100)}% do limite do mês (${brl(o.gasto)} de ${brl(o.limite)}).`, o.nivel === 'estourou' ? 'erro' : 'ok');
+}
 
 const METODOS_SAIDA = ['Pix', 'Débito', 'Boleto', 'Dinheiro', 'Transferência', 'Outro'];
 const METODOS_ENTRADA = ['Pix', 'Transferência', 'Depósito', 'Dinheiro', 'Outro'];
@@ -103,6 +123,12 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
         </label>
       </div>
 
+      <label>Tags <small>(opcional — ex.: #viagem #reforma)</small>
+        <input name="tags" maxlength="200" placeholder="#viagem #reforma" value="${esc((ed?.tags || []).map((t) => '#' + t).join(' '))}">
+      </label>
+      ${!ed ? `<label class="check" data-bloco="recorrente"><input type="checkbox" name="recorrente"> 🔁 Repetir todo mês (aluguel, assinatura, salário…) — gera como pendente nos próximos meses</label>` : ''}
+      ${ed && ed.recorrente_id ? `<p class="dica">🔁 Gerado por uma recorrência. Para mudar os próximos meses, edite em Cadastros → Recorrentes.</p>` : ''}
+      ${ed && ed.lote_id ? `<p class="dica">📥 Veio de uma importação. <button type="button" class="btn-link" data-remover-lote>Remover a importação inteira</button></p>` : ''}
       <p class="dica" data-info></p>
       ${ed && ed.grupo_parcela ? `<label class="check"><input type="checkbox" name="todas"> Aplicar descrição e categoria a todas as ${ed.parcela_total} parcelas</label>` : ''}
 
@@ -142,6 +168,8 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       const cartao = ehCartao();
       el.querySelector('[data-bloco=metodo]').hidden = transf || cartao;
       el.querySelector('[data-bloco=parcelas]').hidden = transf || !cartao || t !== 'saida';
+      const br = el.querySelector('[data-bloco=recorrente]');
+      if (br) br.hidden = transf || (Number(f.parcelas.value) || 1) > 1;
       // no cartão a data de pagamento é o vencimento da fatura (calculado), exceto na edição
       el.querySelector('[data-bloco=data-pag]').hidden = cartao && !ed;
       el.querySelector('[data-bloco=situacao]').hidden = cartao && !ed;
@@ -164,6 +192,17 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       f.origem.innerHTML = opcoesOrigem(tipo(), origem());
       preencherMetodo(); atualizar();
     });
+    let catEscolhida = !!ed;
+    f.categoria_id.addEventListener('change', () => { catEscolhida = true; });
+    f.descricao.addEventListener('input', () => {
+      if (catEscolhida || tipo() === 'transferencia') return;
+      const sg = sugerir(f.descricao.value, tipo());
+      if (sg && [...f.categoria_id.options].some((o) => o.value === sg.categoria_id)) {
+        f.categoria_id.value = sg.categoria_id;
+        f.categoria_id.classList.add('sugerida');
+        f.categoria_id.title = sg.origem === 'regra' ? 'Sugerida por uma regra' : 'Sugerida pelo histórico';
+      }
+    });
     f.origem.onchange = atualizar;
     f.data_movimento.onchange = atualizar;
     f.parcelas.oninput = atualizar;
@@ -171,6 +210,14 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
     f.data_pagamento.onchange = () => { dataPagEditada = true; if (!ed) preencherSituacao(); };
 
     preencherMetodo(); preencherSituacao(); atualizar();
+
+    const bLote = el.querySelector('[data-remover-lote]');
+    if (bLote) bLote.onclick = async () => {
+      const { desfazer } = await import('./importar.js');
+      const lote = S.lotes.find((x) => x.id === ed.lote_id);
+      if (!lote) return toast('Importação não encontrada.', 'erro');
+      await desfazer(lote, bLote, () => { fechar(); aoSalvar && aoSalvar(); });
+    };
 
     // ----- excluir -----
     const btnEx = el.querySelector('[data-excluir]');
@@ -199,7 +246,7 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       const valor = numero(f.valor.value);
       if (!(valor > 0)) return toast('Informe um valor maior que zero.', 'erro');
       if (!f.data_movimento.value) return toast('Informe a data.', 'erro');
-      const base = { descricao: f.descricao.value.trim(), data_movimento: f.data_movimento.value };
+      const base = { descricao: f.descricao.value.trim(), data_movimento: f.data_movimento.value, tags: lerTags(f.tags.value) };
 
       let linhas = [];
       if (t === 'transferencia') {
@@ -233,13 +280,26 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
           await db.atualizar('lancamentos', ed.id, linhas[0]);
           if (ed.grupo_parcela && f.todas && f.todas.checked) {
             const outros = S.lancs.filter((l) => l.grupo_parcela === ed.grupo_parcela && l.id !== ed.id).map((l) => l.id);
-            await db.atualizarVarios('lancamentos', outros, { descricao: linhas[0].descricao, categoria_id: linhas[0].categoria_id });
+            await db.atualizarVarios('lancamentos', outros, { descricao: linhas[0].descricao, categoria_id: linhas[0].categoria_id, tags: linhas[0].tags });
+          }
+        } else if (f.recorrente && f.recorrente.checked && !f.recorrente.closest('[hidden]') && linhas.length === 1 && t !== 'transferencia') {
+          // vira recorrência: grava a regra e deixa o app gerar este mês e os próximos
+          const L = linhas[0];
+          const [rec] = await db.inserir('recorrentes', [{ descricao: L.descricao || 'Recorrente', tipo: t, valor: L.valor, categoria_id: L.categoria_id,
+            conta_id: L.conta_id, cartao_id: L.cartao_id, metodo: L.metodo, dia: Number(L.data_movimento.slice(8, 10)), inicio: L.data_movimento }]);
+          await recarregarExtras();
+          await recarregarLancamentos();
+          await sincronizarRecorrentes();
+          if (L.situacao !== 'pendente') {
+            const gerado = S.lancs.find((x) => x.recorrente_id === rec.id && x.data_movimento === L.data_movimento);
+            if (gerado) { await db.atualizar('lancamentos', gerado.id, { situacao: L.situacao, tags: L.tags }); }
           }
         } else {
           await db.inserir('lancamentos', linhas);
         }
         await recarregarLancamentos();
       });
+      if (t === 'saida') avisarOrcamento(linhas[0].categoria_id, linhas[0].data_pagamento);
       toast(ed ? 'Lançamento atualizado.' : (linhas.length > 1 ? `${linhas.length} parcelas lançadas.` : 'Lançamento salvo.'));
       fechar(); aoSalvar && aoSalvar();
     };

@@ -236,3 +236,66 @@ create policy "dono_update" on public.sugestoes for update using (user_id = auth
 create policy "dono_delete" on public.sugestoes for delete using (user_id = auth.uid());
 grant select, insert, update, delete on public.sugestoes to authenticated;
 revoke all on public.sugestoes from anon;
+
+-- =====================================================================
+-- v1.4.0 — preferências, recorrentes, regras de categoria, tags, conferência de saldo
+-- =====================================================================
+alter table public.perfis add column if not exists preferencias jsonb not null default '{}'::jsonb;
+
+create table if not exists public.recorrentes (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  descricao    text not null check (length(descricao) between 1 and 200),
+  tipo         text not null check (tipo in ('entrada','saida')),
+  valor        numeric(14,2) not null check (valor > 0),
+  categoria_id uuid references public.categorias(id) on delete set null,
+  conta_id     uuid references public.contas(id) on delete set null,
+  cartao_id    uuid references public.cartoes(id) on delete set null,
+  metodo       text not null default '',
+  dia          smallint not null check (dia between 1 and 31),
+  inicio       date not null default current_date,
+  fim          date,
+  ultimo_mes   text,              -- 'AAAA-MM' do último mês já gerado
+  ativo        boolean not null default true,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.regras_categoria (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  contem       text not null check (length(contem) between 2 and 100),
+  tipo         text not null check (tipo in ('entrada','saida')),
+  categoria_id uuid not null references public.categorias(id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  unique (user_id, tipo, contem)
+);
+
+alter table public.lancamentos add column if not exists recorrente_id uuid references public.recorrentes(id) on delete set null;
+alter table public.lancamentos add column if not exists tags text[] not null default '{}';
+alter table public.contas add column if not exists conferido_em date;
+alter table public.contas add column if not exists conferido_saldo numeric(14,2);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['recorrentes','regras_categoria'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "dono_select" on public.%I', t);
+    execute format('drop policy if exists "dono_insert" on public.%I', t);
+    execute format('drop policy if exists "dono_update" on public.%I', t);
+    execute format('drop policy if exists "dono_delete" on public.%I', t);
+    execute format('create policy "dono_select" on public.%I for select using (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_insert" on public.%I for insert with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_update" on public.%I for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_delete" on public.%I for delete using (user_id = (select auth.uid()))', t);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
+  end loop;
+end $$;
+create index if not exists rec_user_idx on public.recorrentes (user_id);
+create index if not exists regras_user_idx on public.regras_categoria (user_id);
+create index if not exists lanc_recorrente_idx on public.lancamentos (recorrente_id);
+create index if not exists regras_cat_idx on public.regras_categoria (categoria_id);
+create index if not exists rec_cat_idx on public.recorrentes (categoria_id);
+create index if not exists rec_conta_idx on public.recorrentes (conta_id);
+create index if not exists rec_cartao_idx on public.recorrentes (cartao_id);

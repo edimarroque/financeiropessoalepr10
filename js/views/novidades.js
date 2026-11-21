@@ -30,8 +30,9 @@ const FAQ = [
   ['Meus dados ficam seguros?', 'Sim. Eles ficam no seu banco do Supabase e só são vistos depois do login. Cada usuário só enxerga os próprios dados (regra aplicada no próprio banco) e novos cadastros estão desligados.'],
   ['Por que um gasto do cartão aparece em outro mês?', 'O mês de um lançamento é o da data de pagamento. No cartão, é o vencimento da fatura: uma compra feita no dia 20 entra na fatura que vence no mês seguinte, igual à planilha.'],
   ['Como marcar uma fatura como paga?', 'Em Cartões, escolha a fatura e toque em “Pagar fatura”. O valor sai da conta escolhida e os itens ficam pagos, sem contar a despesa duas vezes.'],
-  ['Importei algo errado. E agora?', 'Em Importar, na lista “Importações feitas”, toque em Desfazer. Todos os lançamentos daquela importação são apagados.'],
-  ['Posso usar no celular?', 'Sim. Abra o site e use “Instalar app” (Android) ou Compartilhar → “Adicionar à Tela de Início” (iPhone).'],
+  ['Importei algo errado. E agora?', 'Em Importar, na lista “Importações feitas”, toque em 🗑️ Remover (ou abra um lançamento importado → “Remover a importação inteira”). Todos os lançamentos daquela importação são apagados e você pode importar de novo.'],
+  ['Funciona no Android e no iPhone? Como instalo?', 'Sim, nos dois. Android: abra no Chrome e toque em “📲 Instalar app”. iPhone: abra no Safari → Compartilhar → “Adicionar à Tela de Início”. O passo a passo completo está em Como usar → Instalar no celular.'],
+  ['Por que o app pediu login de novo?', 'Por segurança, a sessão é encerrada depois de 15 minutos sem uso (dá para mudar em Mais e ajustes → Segurança). Enquanto você estiver mexendo, ela nunca fecha.'],
   ['Como faço backup?', 'Em Mais: “Exportar para Excel (CSV)” ou “Baixar backup completo (JSON)”.'],
 ];
 

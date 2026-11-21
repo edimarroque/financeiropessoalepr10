@@ -4,6 +4,7 @@ import { S, recarregarCadastros } from '../state.js';
 import { saldoConta, fmtData, hoje, GRUPOS_DESPESA, GRUPOS_RECEITA } from '../calc.js';
 import { esc, brl, numero, modal, toast, confirmar, comCarregando } from '../ui.js';
 import { carregarCadastrosPadrao } from '../seed.js';
+import { renderRecorrentes, renderRegras } from './cadastros-extra.js';
 import { camposVisual, ligarCamposVisual, selo, abrirEmojis, cartaoVisual } from '../components/visual.js';
 
 let aba = 'contas';
@@ -13,6 +14,8 @@ function emUso(campo, id) {
 }
 
 export function render(el) {
+  const abaPedida = sessionStorage.getItem('abaCadastros');
+  if (abaPedida) { sessionStorage.removeItem('abaCadastros'); aba = abaPedida; }
   const pedido = sessionStorage.getItem('abrirCartao');
   if (pedido) { sessionStorage.removeItem('abrirCartao'); aba = 'cartoes'; }
   const vazio = !S.contas.length && !S.cartoes.length && !S.categorias.length;
@@ -22,7 +25,7 @@ export function render(el) {
     </div>
     ${vazio ? `<div class="aviso">Toque em <b>“Carregar cadastros da planilha”</b> para trazer suas 4 contas, 3 cartões (com fechamento, vencimento e limite) e 39 categorias. Depois ajuste o <b>saldo inicial</b> de cada conta.</div>` : ''}
     <div class="abas" role="tablist">
-      ${[['contas', `🏦 Contas (${S.contas.length})`], ['cartoes', `💳 Cartões (${S.cartoes.length})`], ['despesa', `⬇️ Categorias de despesa (${S.categorias.filter((c) => c.tipo === 'despesa').length})`], ['receita', `⬆️ Categorias de receita (${S.categorias.filter((c) => c.tipo === 'receita').length})`]]
+      ${[['contas', `🏦 Contas (${S.contas.length})`], ['cartoes', `💳 Cartões (${S.cartoes.length})`], ['despesa', `⬇️ Categorias de despesa (${S.categorias.filter((c) => c.tipo === 'despesa').length})`], ['receita', `⬆️ Categorias de receita (${S.categorias.filter((c) => c.tipo === 'receita').length})`], ['recorrentes', `🔁 Recorrentes (${S.recorrentes.length})`], ['regras', `🪄 Regras (${S.regras.length})`]]
         .map(([v, r]) => `<button role="tab" class="aba ${aba === v ? 'ativa' : ''}" data-aba="${v}" aria-selected="${aba === v}">${r}</button>`).join('')}
     </div>
     <section class="cartao-bloco" data-conteudo></section>`;
@@ -44,6 +47,8 @@ export function render(el) {
     const c = pedido && S.cartoes.find((x) => x.id === pedido);
     if (c) formCartao(c, rerender);
   }
+  else if (aba === 'recorrentes') renderRecorrentes(cont, rerender);
+  else if (aba === 'regras') renderRegras(cont, rerender);
   else renderCategorias(cont, aba, rerender);
 }
 

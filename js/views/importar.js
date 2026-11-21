@@ -3,6 +3,7 @@ import * as db from '../db.js';
 import { S, recarregarLancamentos, recarregarLotes, cartaoPorId, contaPorId } from '../state.js';
 import { hoje, fmtData, somarMeses, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
+import { sugerir } from '../categorizar.js';
 import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, lerPdfComIA, decodificar, normDesc, chavesDesc } from '../import/parsers.js';
 
 // estado da importação em andamento
@@ -60,12 +61,13 @@ function renderInicio(el) {
 
     <section class="cartao-bloco">
       <h2>Importações feitas</h2>
+      <p class="dica">Se uma importação deu errado, toque em <b>Remover</b>: todos os lançamentos dela são apagados e você pode importar de novo.</p>
       ${S.lotes.length ? `<div class="lista">${S.lotes.map((l) => `
         <div class="item item-estatico">
           <div class="item-icone">${ORIGEM_ROT[l.origem]?.slice(0, 2) || '📥'}</div>
           <div class="item-meio"><div class="item-titulo">${esc(l.descricao || ORIGEM_ROT[l.origem] || l.origem)}</div>
             <div class="item-sub">${new Date(l.created_at).toLocaleString('pt-BR')} · ${l.quantidade} lançamento(s) · ${brl(l.total)}</div></div>
-          <div class="item-fim"><button class="btn btn-perigo" data-desfazer="${l.id}">Desfazer</button></div>
+          <div class="item-fim acoes-linha"><a class="btn btn-peq" href="#/lancamentos" data-ver-lote="${l.id}">Ver</a><button class="btn btn-peq btn-perigo" data-desfazer="${l.id}">🗑️ Remover</button></div>
         </div>`).join('')}</div>` : '<p class="dica">Nenhuma importação ainda.</p>'}
     </section>`;
 
@@ -153,36 +155,13 @@ function renderInicio(el) {
     render(el);
   };
 
+  el.querySelectorAll('[data-ver-lote]').forEach((a) => a.onclick = () => window.dispatchEvent(new CustomEvent('filtro-lote', { detail: a.dataset.verLote })));
   el.querySelectorAll('[data-desfazer]').forEach((b) => b.onclick = () => desfazer(S.lotes.find((l) => l.id === b.dataset.desfazer), b, () => render(el)));
 }
 
 // =====================================================================
 // Preparação: transforma o que foi lido em lançamentos, sugere categoria e marca duplicados
 // =====================================================================
-function indiceCategorias() {
-  const idx = new Map(); // chave -> Map(categoria_id -> contagem)
-  for (const l of S.lancs) {
-    if (!l.categoria_id || (l.tipo !== 'saida' && l.tipo !== 'entrada')) continue;
-    for (const k of chavesDesc(l.descricao)) {
-      if (!idx.has(k)) idx.set(k, new Map());
-      const m = idx.get(k);
-      m.set(l.categoria_id, (m.get(l.categoria_id) || 0) + 1);
-    }
-  }
-  return idx;
-}
-
-function sugerirCategoria(idx, desc, tipo) {
-  const tipoCat = tipo === 'entrada' ? 'receita' : 'despesa';
-  for (const k of chavesDesc(desc)) {
-    const m = idx.get(k);
-    if (!m) continue;
-    const ordenado = [...m.entries()].filter(([id]) => S.categorias.find((c) => c.id === id && c.tipo === tipoCat)).sort((a, b) => b[1] - a[1]);
-    if (ordenado.length) return ordenado[0][0];
-  }
-  return null;
-}
-
 const porNome = (lista, nome, limpar = (s) => s) => {
   const n = limpar(normDesc(nome));
   if (!n) return null;
@@ -205,7 +184,6 @@ function pareceFatura(d) {
 
 function preparar() {
   const { cfg, lido, edits } = imp;
-  const idx = indiceCategorias();
   const existentes = new Set(S.lancs.map((l) => l.chave_dedup).filter(Boolean));
   const seq = new Map(); // para manter duas compras iguais no mesmo dia
   const comSeq = (k) => { const n = (seq.get(k) || 0) + 1; seq.set(k, n); return n > 1 ? `${k}#${n}` : k; };
@@ -274,7 +252,7 @@ function preparar() {
     // categoria sugerida pelo histórico
     if (L.tipo === 'entrada' || L.tipo === 'saida') {
       if (e.categoria_id !== undefined) L.categoria_id = e.categoria_id;
-      else if (!L.categoria_id) { L.categoria_id = sugerirCategoria(idx, L.descricao, L.tipo); L.sugerida = !!L.categoria_id; }
+      else if (!L.categoria_id) { const sg = sugerir(L.descricao, L.tipo); L.categoria_id = sg?.categoria_id || null; L.sugerida = sg?.origem || false; }
     } else L.categoria_id = null;
 
     // duplicados: mesma chave já gravada, ou lançamento manual muito parecido
@@ -482,9 +460,9 @@ async function gravar(botao, el) {
   render(el);
 }
 
-async function desfazer(lote, botao, aoFim) {
-  const ok = await confirmar('Desfazer importação', `Apagar os <b>${lote.quantidade}</b> lançamento(s) desta importação?<br><small>${esc(lote.descricao)}</small>`,
-    [{ valor: 'sim', rotulo: 'Desfazer importação', classe: 'btn-perigo' }]);
+export async function desfazer(lote, botao, aoFim) {
+  const ok = await confirmar('Remover importação', `Apagar os <b>${lote.quantidade}</b> lançamento(s) desta importação?<br><small>${esc(lote.descricao)}</small>`,
+    [{ valor: 'sim', rotulo: 'Remover importação', classe: 'btn-perigo' }]);
   if (!ok) return;
   await comCarregando(botao, async () => {
     await db.excluirOnde('lancamentos', 'lote_id', lote.id);

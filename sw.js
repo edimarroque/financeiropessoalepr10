@@ -1,7 +1,7 @@
 // Service worker: permite instalar como app e abrir a tela mesmo com internet ruim.
 // Arquivos do próprio site: tenta a rede primeiro (sempre a versão mais nova), cai no cache se estiver offline.
 // Chamadas ao Supabase (dados) NUNCA são guardadas em cache.
-const CACHE = 'financeiro-v5';
+const CACHE = 'financeiro-v6';
 const ARQUIVOS = [
   '/', '/index.html', '/css/style.css', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png',
   '/js/app.js', '/js/config.js', '/js/db.js', '/js/state.js', '/js/calc.js', '/js/ui.js', '/js/seed.js',
@@ -9,6 +9,7 @@ const ARQUIVOS = [
   '/js/views/mais.js', '/js/views/form-lancamento.js', '/js/views/importar.js', '/js/import/parsers.js',
   '/js/views/dashboards.js', '/js/views/novidades.js', '/js/views/ajuda.js', '/js/versoes.js',
   '/js/components/periodo.js', '/js/components/calendario.js', '/js/components/graficos.js', '/js/components/visual.js',
+  '/js/prefs.js', '/js/categorizar.js', '/js/views/cadastros-extra.js', '/js/servicos/recorrentes.js', '/js/servicos/sessao.js', '/js/servicos/instalar.js',
 ];
 
 self.addEventListener('install', (e) => {

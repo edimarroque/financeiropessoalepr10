@@ -20,7 +20,7 @@ export function barras(rotulos, series, { altura = 220, destaque = -1, linha = n
   const grupos = rotulos.map((r, i) => {
     const x0 = pe + i * passo + 4;
     const dica = [r, ...series.map((s) => `${s.nome}: ${brl(s.valores[i])}`), ...(linha ? [`${linha.nome}: ${brl(linha.valores[i])}`] : [])].join('\n');
-    return `<g class="g-grupo ${i === destaque ? 'g-destaque' : ''}"><title>${esc(dica)}</title>
+    return `<g class="g-grupo ${i === destaque ? 'g-destaque' : ''}" data-dica="${esc(dica)}">
       <rect x="${x0 - 2}" y="${pt}" width="${passo - 4}" height="${H - pt - pb}" class="g-hover"/>
       ${series.map((s, k) => { const v = s.valores[i]; const y1 = Math.min(y(v), y(0)); return `<rect x="${x0 + k * bw}" y="${y1}" width="${bw - 1}" height="${Math.abs(y(v) - y(0))}" rx="3" fill="${s.cor}"/>`; }).join('')}
       <text x="${x0 + (passo - 8) / 2}" y="${H - 8}" text-anchor="middle" class="g-rot ${i === destaque ? 'g-rot-forte' : ''}">${esc(r)}</text></g>`;
@@ -29,7 +29,7 @@ export function barras(rotulos, series, { altura = 220, destaque = -1, linha = n
   if (linha) {
     const pts = linha.valores.map((v, i) => `${pe + i * passo + passo / 2},${y(v)}`).join(' ');
     poli = `<polyline points="${pts}" fill="none" stroke="${linha.cor}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` +
-      linha.valores.map((v, i) => `<circle cx="${pe + i * passo + passo / 2}" cy="${y(v)}" r="3.5" fill="${linha.cor}"><title>${esc(linha.nome)}: ${brl(v)}</title></circle>`).join('');
+      linha.valores.map((v, i) => `<circle cx="${pe + i * passo + passo / 2}" cy="${y(v)}" r="3.5" fill="${linha.cor}" data-dica="${esc(rotulos[i] + '\n' + linha.nome + ': ' + brl(v))}"/>`).join('');
   }
   const leg = [...series, ...(linha ? [linha] : [])].map((s) => `<span><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="grafico" role="img">${grade}${grupos}${poli}</svg><div class="legenda">${leg}</div>`;
@@ -51,7 +51,7 @@ export function rosca(itens, { centro = '', sub = '' } = {}) {
       : `M ${p(ang, R)} A ${R},${R} 0 ${grande},1 ${p(a2, R)} L ${p(a2, r)} A ${r},${r} 0 ${grande},0 ${p(ang, r)} Z`;
     ang = a2;
     const cor = it.cor || PALETA[i % PALETA.length];
-    return `<path d="${d}" fill="${cor}" fill-rule="evenodd"><title>${esc(it.nome)}: ${brl(it.valor)} (${(frac * 100).toFixed(1)}%)</title></path>`;
+    return `<path d="${d}" fill="${cor}" fill-rule="evenodd" data-dica="${esc(`${it.nome}\n${brl(it.valor)} (${(frac * 100).toFixed(1)}%)`)}"/>`;
   }).join('');
   const leg = itens.map((it, i) => `<li><i style="background:${it.cor || PALETA[i % PALETA.length]}"></i><span>${esc(it.nome)}</span><b>${(it.valor / total * 100).toFixed(0)}%</b></li>`).join('');
   return `<div class="rosca"><svg viewBox="0 0 180 180" role="img">${fatias}
@@ -65,7 +65,7 @@ export function barrasH(itens, { max = null, cor = 'var(--acento)' } = {}) {
   if (!itens.length) return '<p class="dica">Sem dados no período.</p>';
   const m = max || Math.max(...itens.map((i) => i.valor), 1);
   return `<div class="barras-h">${itens.map((it) => `
-    <div class="bh-linha" title="${esc(it.rotulo)}: ${brl(it.valor)}">
+    <div class="bh-linha" data-dica="${esc(`${it.rotulo}\n${brl(it.valor)}`)}">
       <div class="bh-topo"><span>${esc(it.rotulo)}${it.extra ? ` <small>${esc(it.extra)}</small>` : ''}</span><b>${brl(it.valor)}</b></div>
       <div class="bh-trilho"><div class="bh-barra" style="width:${Math.max(1.5, it.valor / m * 100).toFixed(1)}%;background:${it.cor || cor}"></div></div>
     </div>`).join('')}</div>`;
@@ -77,4 +77,35 @@ export function selo(v, { inverso = false } = {}) {
   const sobe = v > 0;
   const bom = inverso ? !sobe : sobe;
   return `<span class="selo ${Math.abs(v) < 0.005 ? 'neutro' : bom ? 'bom' : 'ruim'}">${sobe ? '▲' : '▼'} ${Math.abs(v * 100).toFixed(0)}%</span>`;
+}
+
+// ---------------------------------------------------------------------
+// Dica flutuante: aparece ao passar o mouse ou tocar numa barra/fatia (celular e computador)
+// ---------------------------------------------------------------------
+let dicaEl = null;
+function mostrarDica(alvo, x, y) {
+  if (!dicaEl) { dicaEl = document.createElement('div'); dicaEl.className = 'dica-flutuante'; dicaEl.setAttribute('role', 'tooltip'); document.body.appendChild(dicaEl); }
+  const linhas = alvo.dataset.dica.split('\n');
+  dicaEl.innerHTML = `<b>${esc(linhas[0])}</b>${linhas.slice(1).map((l) => `<span>${esc(l)}</span>`).join('')}`;
+  dicaEl.classList.add('vis');
+  const w = dicaEl.offsetWidth, h = dicaEl.offsetHeight;
+  dicaEl.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))}px`;
+  dicaEl.style.top = `${y - h - 14 < 8 ? y + 18 : y - h - 14}px`;
+  document.querySelectorAll('.dica-ativa').forEach((e) => e.classList.remove('dica-ativa'));
+  alvo.classList.add('dica-ativa');
+}
+function esconderDica() { dicaEl?.classList.remove('vis'); document.querySelectorAll('.dica-ativa').forEach((e) => e.classList.remove('dica-ativa')); }
+if (typeof document !== 'undefined' && !window.__dicas) {
+  window.__dicas = true;
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const a = e.target.closest?.('[data-dica]');
+    if (a) mostrarDica(a, e.clientX, e.clientY); else esconderDica();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    const a = e.target.closest?.('[data-dica]');
+    if (a) mostrarDica(a, e.clientX, e.clientY); else esconderDica();
+  });
+  window.addEventListener('scroll', esconderDica, { passive: true });
+  window.addEventListener('hashchange', esconderDica);
 }

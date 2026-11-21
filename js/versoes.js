@@ -1,6 +1,24 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.4.0', data: '2026-11-21', titulo: 'Usabilidade e controle',
+    novidades: [
+      '🎨 Temas: claro, escuro ou automático e 7 cores de destaque (Mais e ajustes → Aparência). Vale em todos os aparelhos.',
+      '➕ Botão “+” flutuante só onde faz sentido (Painel, Lançamentos e Cartões, no celular); no computador, use “+ Lançar”/“+ Novo”.',
+      '👆 Gráficos: toque ou passe o mouse na barra/fatia para ver o valor.',
+      '📲 Botão “Instalar app” e passo a passo para Android e iPhone (Como usar → Instalar no celular).',
+      '🗑️ Remover importação que deu errado: em Importar → Importações feitas (com “Ver” para conferir antes), ou direto num lançamento importado.',
+      '🔐 Sessão encerra sozinha após 15 min sem uso (configurável); 1 min antes aparece aviso para continuar. Enquanto você usa, nunca fecha.',
+      '🔁 Lançamentos recorrentes (aluguel, assinaturas, salário, dízimo): gerados como pendentes até o mês que vem. Marque “Repetir todo mês” ao lançar ou use Cadastros → Recorrentes.',
+      '🚦 Orçamento por categoria no Painel, com alerta ao chegar em 80% e 100% do limite (também avisa ao lançar).',
+      '⚖️ Conferir saldo com o banco: informe o saldo real, veja a diferença e lance o ajuste.',
+      '🪄 Regras automáticas de categoria (ex.: PEDAGIO → Pedágio) e o app aprende com seus lançamentos, sugerindo regras novas.',
+      '🏷️ Tags livres nos lançamentos (#viagem, #reforma), com filtro.',
+      '🔎 Dashboards → Gastos: assinaturas e gastos repetidos, com alerta de cobrança em dobro no mesmo mês.',
+    ],
+    correcoes: ['Categoria sugerida automaticamente também no lançamento manual, ao digitar a descrição.'],
+  },
+  {
     versao: '1.3.0', data: '2026-11-21', titulo: 'Leitura de PDF com IA',
     novidades: [
       '🤖 Importar → “Ler com IA (Gemini)”: lê a fatura do cartão XP e os extratos do Itaú (salário e pessoal) direto do PDF, no lugar dos Apps Scripts de conversão.',

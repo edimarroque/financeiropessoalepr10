@@ -1,5 +1,6 @@
 // Tela: Como usar — guia simples, passo a passo
 import { esc } from '../ui.js';
+import { PASSOS_ANDROID, PASSOS_IPHONE, instalar, instalado } from '../servicos/instalar.js';
 
 const PASSOS = [
   { icone: '⚙️', titulo: '1. Deixe os cadastros prontos', link: '#/cadastros', botao: 'Abrir Cadastros', itens: [
@@ -9,11 +10,13 @@ const PASSOS = [
     'Personalize: escolha ícone, cor e, se quiser, uma imagem/logo para cada conta e cartão.',
   ] },
   { icone: '➕', titulo: '2. Lance o dia a dia', link: '#/lancamentos', botao: 'Abrir Lançamentos', itens: [
-    'Toque no botão + (canto inferior direito) em qualquer tela.',
+    'No computador use “+ Lançar” no Painel ou “+ Novo” em Lançamentos; no celular, o botão + aparece no Painel, Lançamentos e Cartões.',
     'Escolha Despesa, Receita ou Transferência, digite o valor, a data e a descrição.',
     'Escolha a categoria e por onde pagou: conta (Pix, débito, boleto…) ou cartão.',
     'Compra parcelada no cartão: informe o valor TOTAL e o número de parcelas — o app divide e coloca cada parcela na fatura certa.',
     'Para corrigir ou excluir, toque no lançamento.',
+    'Conta que se repete todo mês (aluguel, assinatura, salário)? Marque “🔁 Repetir todo mês”: o app cria os próximos meses como pendentes.',
+    'Use tags (#viagem, #reforma) para juntar gastos de um mesmo assunto e filtrar depois.',
   ] },
   { icone: '📥', titulo: '3. Importe faturas e extratos', link: '#/importar', botao: 'Abrir Importar', itens: [
     'Fatura do cartão: envie o PDF, escolha o cartão e o vencimento. Use “Ler com IA” para mais precisão.',
@@ -30,10 +33,15 @@ const PASSOS = [
     'Painel: resumo do mês, saldo das contas, calendário de gastos e faturas.',
     'Dashboards: comparativos, categorias mês a mês, maiores gastos e formas de pagamento.',
     'Escolha o mês e o ano no topo das telas (ou “Ano todo”).',
+    'Toque (ou passe o mouse) numa barra ou fatia do gráfico para ver o valor.',
+    'No Painel, “⚖️ Conferir” compara o saldo do app com o do banco e lança o ajuste se precisar.',
+    'Defina limites nas categorias: o app avisa ao chegar em 80% e 100%.',
   ] },
 ];
 
 const DICAS = [
+  ['Regras de categoria', 'Em Cadastros → Regras: “se a descrição contém PEDAGIO, use Pedágio”. O app também sugere regras que aprendeu com seus lançamentos.'],
+  ['Remover importação', 'Em Importar → Importações feitas → Remover. Apaga todos os lançamentos daquela importação para você importar de novo.'],
   ['Situação', 'Pago/Recebido = já saiu ou entrou na conta. Pendente = ainda vai acontecer. Toque na etiqueta para trocar.'],
   ['Mês do lançamento', 'Conta pela data de pagamento. No cartão é o vencimento da fatura.'],
   ['Transferência', 'Use para mover dinheiro entre suas contas — não conta como receita nem despesa.'],
@@ -51,8 +59,16 @@ export function render(el) {
           <a class="btn btn-peq" href="${p.link}">${esc(p.botao)} →</a>
         </section>`).join('')}
     </div>
+    <section class="cartao-bloco" id="instalar">
+      <div class="cab-lista"><h2>📲 Instalar no celular (Android e iPhone)</h2>${instalado() ? '<span class="pill">✅ instalado</span>' : '<button class="btn btn-primario btn-peq" data-instalar>Instalar agora</button>'}</div>
+      <div class="termos">
+        <div><b>🤖 Android</b><ol class="lista-simples">${PASSOS_ANDROID.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+        <div><b>📱 iPhone</b><ol class="lista-simples">${PASSOS_IPHONE.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+      </div>
+    </section>
     <section class="cartao-bloco">
       <h2>Entendendo os termos</h2>
       <div class="termos">${DICAS.map(([t, d]) => `<div><b>${esc(t)}</b><p>${esc(d)}</p></div>`).join('')}</div>
     </section>`;
+  el.querySelector('[data-instalar]')?.addEventListener('click', instalar);
 }

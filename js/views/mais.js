@@ -5,6 +5,9 @@ import { fmtData, hoje } from '../calc.js';
 import { esc, toast, modal, comCarregando } from '../ui.js';
 import { reduzirImagem } from '../components/visual.js';
 import { VERSAO } from '../config.js';
+import { prefs, salvarPrefs, CORES_TEMA } from '../prefs.js';
+import { instalar, instalado } from '../servicos/instalar.js';
+import { reiniciarSessao } from '../servicos/sessao.js';
 
 function baixar(nome, conteudo, tipo) {
   const blob = new Blob([conteudo], { type: tipo });
@@ -93,6 +96,27 @@ export function render(el) {
       <a href="#/ajuda"><span>❓</span>Como usar</a>
       <a href="#/novidades"><span>✨</span>Novidades <small>v${VERSAO}</small></a>
     </div>
+    <section class="cartao-bloco" id="aparencia">
+      <h2>🎨 Aparência</h2>
+      <h3>Tema</h3>
+      <div class="seg seg3" role="radiogroup" aria-label="Tema">
+        ${[['auto', '🌗 Automático'], ['claro', '☀️ Claro'], ['escuro', '🌙 Escuro']].map(([v, r]) => `<label><input type="radio" name="tema" value="${v}" ${prefs().tema === v ? 'checked' : ''}><span>${r}</span></label>`).join('')}
+      </div>
+      <h3>Cor de destaque</h3>
+      <div class="temas-cores">${Object.entries(CORES_TEMA).map(([k, c]) => `<button class="tema-cor ${prefs().cor === k ? 'sel' : ''}" data-cor-tema="${k}" style="--c1:${c.claro[0]};--c2:${c.claro[1]}" aria-label="${esc(c.nome)}"><i></i><span>${esc(c.nome)}</span></button>`).join('')}</div>
+      <p class="dica">Vale para todos os seus aparelhos.</p>
+    </section>
+    <section class="cartao-bloco">
+      <h2>🔐 Segurança</h2>
+      <label class="form-linha">Encerrar a sessão depois de
+        <select data-sessao>${[5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${Number(prefs().sessaoMin) === m ? 'selected' : ''}>${m} minutos sem uso</option>`).join('')}</select>
+      </label>
+      <p class="dica">Enquanto você estiver mexendo no app, a sessão nunca é encerrada. Um minuto antes, aparece um aviso para continuar.</p>
+    </section>
+    <section class="cartao-bloco">
+      <h2>📲 App no celular</h2>
+      ${instalado() ? '<p>✅ Você está usando o app instalado.</p>' : '<p class="dica">Funciona no Android e no iPhone, com os mesmos dados do computador.</p><button class="btn btn-primario" data-instalar>📲 Instalar app</button>'}
+    </section>
     <section class="cartao-bloco">
       <h2>Seus dados</h2>
       <p class="dica">${S.lancs.length} lançamentos · ${S.contas.length} contas · ${S.cartoes.length} cartões · ${S.categorias.length} categorias</p>
@@ -107,6 +131,13 @@ export function render(el) {
     </section>`;
   el.querySelector('[data-perfil]').onclick = () => abrirPerfil(() => { render(el); window.dispatchEvent(new Event('perfil-mudou')); });
   el.querySelector('[data-csv]').onclick = exportarCSV;
+  el.querySelectorAll('[name=tema]').forEach((r) => r.onchange = () => salvarPrefs({ tema: r.value }).catch((e) => toast(e.message, 'erro')));
+  el.querySelectorAll('[data-cor-tema]').forEach((b) => b.onclick = async () => {
+    el.querySelectorAll('[data-cor-tema]').forEach((x) => x.classList.toggle('sel', x === b));
+    await salvarPrefs({ cor: b.dataset.corTema }).catch((e) => toast(e.message, 'erro'));
+  });
+  el.querySelector('[data-sessao]').onchange = async (e) => { await salvarPrefs({ sessaoMin: Number(e.target.value) }).catch((er) => toast(er.message, 'erro')); reiniciarSessao(); toast('Tempo de sessão salvo.'); };
+  el.querySelector('[data-instalar]')?.addEventListener('click', instalar);
   el.querySelector('[data-json]').onclick = backupJSON;
   el.querySelector('[data-sair]').onclick = async () => { await db.sair(); };
 }

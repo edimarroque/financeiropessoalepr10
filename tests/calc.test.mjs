@@ -31,3 +31,22 @@ const fl=[{id:1,tipo:'saida',cartao_id:'x',valor:80,situacao:'pendente',data_pag
 const f=c.fatura(xp,fl,'2026-11-15'); assert.equal(f.total,70); assert.equal(f.paga,false);
 assert.equal(c.limiteUsado(xp,fl),70);
 console.log('todos os testes de cálculo passaram');
+// v1.4 — recorrentes, assinaturas, orçamento
+{
+  const r = { id: 'r', ativo: true, inicio: '2026-09-10', dia: 31, valor: 50, tipo: 'saida', descricao: 'Aluguel', conta_id: 'c1' };
+  const g = c.gerarRecorrencias(r, '2026-12');
+  assert.deepEqual(g.map((x) => x.data_movimento), ['2026-09-30', '2026-10-31', '2026-11-30', '2026-12-31']);
+  assert.equal(g[0].chave_dedup, 'rec:r:2026-09'); assert.equal(g[0].situacao, 'pendente');
+  assert.equal(c.gerarRecorrencias({ ...r, ultimo_mes: '2026-12' }, '2026-12').length, 0);
+  assert.equal(c.gerarRecorrencias({ ...r, fim: '2026-10-31' }, '2027-03').length, 2);
+  assert.equal(c.gerarRecorrencias({ ...r, ativo: false }, '2026-12').length, 0);
+  const gc = c.gerarRecorrencias({ ...r, dia: 10, ultimo_mes: '2026-11' }, '2026-12', xp);
+  assert.equal(gc[0].data_pagamento, '2027-01-15'); assert.equal(gc[0].cartao_id, 'x'); assert.equal(gc[0].conta_id, null);
+  const as = c.assinaturasRepetidas([1, 2, 3, 3].map((m, i) => ({ tipo: 'saida', descricao: 'NETFLIX.COM ' + i, valor: 39.9, data_movimento: `2026-0${m}-0${i + 1}` })));
+  assert.equal(as.length, 1); assert.equal(as[0].duplicadoNoMes, true); assert.equal(as[0].meses, 3);
+  assert.equal(c.assinaturasRepetidas([1, 2, 3].map((m) => ({ tipo: 'saida', descricao: 'MERCADO', valor: 100 * m, data_movimento: `2026-0${m}-05` }))).length, 0);
+  const cats = [{ id: 'k', tipo: 'despesa', valor_mensal: 100 }, { id: 'z', tipo: 'despesa', valor_mensal: 0 }];
+  const o = c.orcamentoCategorias([{ tipo: 'saida', categoria_id: 'k', valor: 85, data_pagamento: '2026-11-10' }], cats, '2026-11-01', '2026-11-30');
+  assert.equal(o.length, 1); assert.equal(o[0].nivel, 'atencao');
+}
+console.log('v1.4 calc OK');

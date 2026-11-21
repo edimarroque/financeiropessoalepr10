@@ -291,3 +291,73 @@ export function variacao(atual, anterior) {
   if (!anterior) return null;
   return (atual - anterior) / Math.abs(anterior);
 }
+
+// ---------------------------------------------------------------------
+// v1.4 — recorrentes (aluguel, assinaturas, salário…) e assinaturas repetidas
+// ---------------------------------------------------------------------
+/**
+ * Lançamentos que uma recorrência ainda precisa gerar, do mês seguinte a `ultimo_mes` (ou do início) até `ateMes` ('AAAA-MM').
+ * No cartão, a data de pagamento é o vencimento da fatura daquela data de compra.
+ */
+export function gerarRecorrencias(rec, ateMes, cartao = null) {
+  if (!rec.ativo) return [];
+  let ref = rec.ultimo_mes ? somarMesRef(rec.ultimo_mes, 1) : mesDe(rec.inicio);
+  const fimRef = rec.fim && mesDe(rec.fim) < ateMes ? mesDe(rec.fim) : ateMes;
+  const out = [];
+  for (let i = 0; ref <= fimRef && i < 60; i++, ref = somarMesRef(ref, 1)) {
+    const { y, m } = partes(ref + '-01');
+    const data = montar(y, m, rec.dia);
+    if (data < rec.inicio) continue;
+    const pag = cartao ? vencimentoDaCompra(data, cartao) : data;
+    out.push({
+      ref, data_movimento: data, data_pagamento: pag, tipo: rec.tipo, descricao: rec.descricao, valor: Number(rec.valor),
+      categoria_id: rec.categoria_id || null, conta_id: cartao ? null : (rec.conta_id || null), cartao_id: cartao ? cartao.id : null,
+      conta_destino_id: null, metodo: cartao ? 'Crédito' : (rec.metodo || ''), situacao: 'pendente', origem: 'recorrente',
+      recorrente_id: rec.id, chave_dedup: `rec:${rec.id}:${ref}`,
+    });
+  }
+  return out;
+}
+
+/** Despesas que se repetem todo mês (mesma descrição, valor parecido) — prováveis assinaturas */
+export function assinaturasRepetidas(lancs, { minMeses = 3, tolerancia = 0.15 } = {}) {
+  const grupos = new Map();
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\d+/g, ' ').replace(/[^A-Z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const l of lancs) {
+    if (l.tipo !== 'saida' || l.parcela_total) continue;
+    const k = norm(l.descricao);
+    if (k.length < 3) continue;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(l);
+  }
+  const out = [];
+  for (const [k, ls] of grupos) {
+    const porMes = new Map();
+    for (const l of ls) { const r = mesDe(l.data_movimento); if (!porMes.has(r)) porMes.set(r, []); porMes.get(r).push(l); }
+    if (porMes.size < minMeses) continue;
+    const valores = ls.map((l) => Number(l.valor));
+    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+    if (valores.some((v) => Math.abs(v - media) > media * tolerancia)) continue;
+    const meses = [...porMes.keys()].sort();
+    const duplicadoNoMes = [...porMes.values()].some((x) => x.length > 1);
+    const ultimo = ls.slice().sort((a, b) => b.data_movimento.localeCompare(a.data_movimento))[0];
+    out.push({ descricao: ultimo.descricao, chave: k, media: arred(media), meses: meses.length, ultimoMes: meses[meses.length - 1],
+      anual: arred(media * 12), duplicadoNoMes, cartao_id: ultimo.cartao_id, conta_id: ultimo.conta_id, categoria_id: ultimo.categoria_id,
+      recorrente: ls.some((l) => l.recorrente_id) });
+  }
+  return out.sort((a, b) => b.anual - a.anual);
+}
+
+/** Gastos por categoria no mês × limite (valor_mensal). nivel: 'ok' | 'atencao' (≥80%) | 'estourou' (≥100%) */
+export function orcamentoCategorias(lancs, categorias, ini, fim, meses = 1) {
+  const out = [];
+  for (const c of categorias) {
+    if (c.tipo !== 'despesa' || !(Number(c.valor_mensal) > 0)) continue;
+    const limite = Number(c.valor_mensal) * meses;
+    const gasto = arred(lancs.filter((l) => l.tipo === 'saida' && l.categoria_id === c.id && l.data_pagamento >= ini && l.data_pagamento <= fim)
+      .reduce((s, l) => s + Number(l.valor), 0));
+    const p = gasto / limite;
+    out.push({ categoria: c, limite, gasto, p, nivel: p >= 1 ? 'estourou' : p >= 0.8 ? 'atencao' : 'ok' });
+  }
+  return out.sort((a, b) => b.p - a.p);
+}

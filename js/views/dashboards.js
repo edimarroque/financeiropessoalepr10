@@ -1,7 +1,7 @@
 // Tela: Dashboards avançados — gastos, ganhos e recebimentos
 import { S, categoriaPorId, cartaoPorId, contaPorId } from '../state.js';
 import { resumoIntervalo, periodoAnterior, intervalo, variacao, matrizAnual, agrupar, diasEntre, hoje,
-  MESES_CURTOS, DIAS_SEMANA, partes, GRUPOS_DESPESA, arred } from '../calc.js';
+  MESES_CURTOS, DIAS_SEMANA, partes, GRUPOS_DESPESA, arred, assinaturasRepetidas } from '../calc.js';
 import { esc, brl, pct } from '../ui.js';
 import { periodoHTML, ligarPeriodo, periodoAtual, rotuloPeriodo } from '../components/periodo.js';
 import { barras, rosca, barrasH, selo, PALETA } from '../components/graficos.js';
@@ -117,7 +117,21 @@ function gastos(el, r, rAnt, ini, fim, ia) {
           <div class="item-sub">${esc(nomeCat(l.categoria_id))} · ${l.data_movimento.split('-').reverse().join('/')}</div></div><div class="item-fim"><b class="neg">${brl(l.valor)}</b></div></div>`).join('') || '<p class="dica">Sem gastos.</p>'}</div>
         ${compromisso ? `<p class="aviso mt">📅 Parcelas de cartão já comprometidas depois deste período: <b>${brl(compromisso)}</b> (${parcelasFuturas.length} parcela(s)).</p>` : ''}
       </section>
+      ${assinaturasHTML()}
     </div>`;
+}
+
+// Assinaturas: gastos que se repetem todo mês com valor parecido
+function assinaturasHTML() {
+  const lista = assinaturasRepetidas(S.lancs);
+  const total = lista.reduce((s, x) => s + x.media, 0);
+  return `<section class="cartao-bloco span2"><div class="cab-lista"><h2>🔁 Assinaturas e gastos repetidos</h2><span class="pill">${brl(total)}/mês · ${brl(total * 12)}/ano</span></div>
+    <p class="dica">Despesas com a mesma descrição e valor parecido em 3 meses ou mais. Revise o que não usa mais — e fique de olho em cobranças duplicadas.</p>
+    ${lista.length ? `<table class="tabela"><thead><tr><th>Descrição</th><th class="num">Média/mês</th><th class="num opc">Por ano</th><th class="opc">Meses</th><th>Situação</th></tr></thead><tbody>
+      ${lista.map((x) => `<tr><td><b>${esc(x.descricao)}</b><br><small>${esc(nomeCat(x.categoria_id))} · ${x.cartao_id ? '💳 ' + esc(cartaoPorId(x.cartao_id)?.nome || '') : '🏦 ' + esc(contaPorId(x.conta_id)?.nome || '')}</small></td>
+        <td class="num">${brl(x.media)}</td><td class="num opc">${brl(x.anual)}</td><td class="opc">${x.meses}</td>
+        <td>${x.duplicadoNoMes ? '<span class="sit sit-pend">⚠️ cobrada 2x no mesmo mês</span>' : x.recorrente ? '<span class="sit sit-ok">🔁 recorrente</span>' : '<span class="dica">—</span>'}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="dica">Nenhuma repetição encontrada ainda (precisa de 3 meses de histórico).</p>'}</section>`;
 }
 
 // ---------------- Ganhos e recebimentos ----------------

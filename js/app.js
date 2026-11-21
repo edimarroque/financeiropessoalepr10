@@ -15,6 +15,10 @@ import { abrirFormLancamento } from './views/form-lancamento.js';
 import { avatarHTML, abrirPerfil } from './views/mais.js';
 import { nomeUsuario } from './state.js';
 import { VERSAO } from './config.js';
+import { carregarDoPerfil } from './prefs.js';
+import { sincronizarRecorrentes } from './servicos/recorrentes.js';
+import { ligarSessao, desligarSessao, sessaoExpirada, marcarAtividade } from './servicos/sessao.js';
+import { instalar, podeInstalar } from './servicos/instalar.js';
 
 // grupo: 'principal' (lateral e barra do celular), 'gestao' (lateral), 'ajuda' (lateral, rodapé), 'oculta'
 const ROTAS = {
@@ -26,9 +30,11 @@ const ROTAS = {
   cadastros: { titulo: 'Cadastros', icone: '⚙️', view: cadastros, grupo: 'gestao' },
   ajuda: { titulo: 'Como usar', icone: '❓', view: ajuda, grupo: 'ajuda' },
   novidades: { titulo: 'Novidades', icone: '✨', view: novidades, grupo: 'ajuda' },
-  mais: { titulo: 'Mais', icone: '☰', view: mais, grupo: 'oculta' },
+  mais: { titulo: 'Mais e ajustes', icone: '🎛️', view: mais, grupo: 'gestao' },
 };
 const MOBILE = ['painel', 'lancamentos', 'cartoes', 'dashboards', 'mais'];
+// telas em que o botão flutuante "+" (novo lançamento) aparece — só no celular
+const COM_FAB = ['painel', 'lancamentos', 'cartoes'];
 
 const raiz = document.getElementById('app');
 
@@ -49,14 +55,16 @@ function montarCasca() {
       <nav>${por('principal')}<div class="nav-sep">Gestão</div>${por('gestao')}<div class="nav-sep">Ajuda</div>${por('ajuda').replace('Novidades</a>', `Novidades ${novo ? '<i class="ponto-novo" title="Há novidades"></i>' : ''}</a>`)}</nav>
       <div class="lateral-rodape">
         <button class="usuario" data-perfil title="Editar perfil">${avatarHTML(36)}<span><b>${esc(nomeUsuario())}</b><small>${esc(S.user?.email || '')}</small></span></button>
+        ${podeInstalar() ? '<button class="btn-instalar" data-instalar>📲 Instalar app</button>' : ''}
         <div class="lateral-acoes"><a href="#/novidades" class="versao-mini" title="Novidades desta versão">v${VERSAO}</a><button class="btn-sair" data-sair title="Sair">🚪 Sair</button></div>
       </div>
     </aside>
     <main id="tela" tabindex="-1"></main>
-    <nav class="inferior">${MOBILE.map((k) => `<a href="#/${k}" data-rota="${k}"><span>${ROTAS[k].icone}</span><small>${ROTAS[k].titulo}</small></a>`).join('')}</nav>
+    <nav class="inferior">${MOBILE.map((k) => `<a href="#/${k}" data-rota="${k}"><span>${ROTAS[k].icone}</span><small>${k === 'mais' ? 'Mais' : ROTAS[k].titulo}</small></a>`).join('')}</nav>
     <button class="fab" aria-label="Novo lançamento" title="Novo lançamento">+</button>`;
   raiz.querySelector('.fab').onclick = () => abrirFormLancamento(null, desenhar);
-  raiz.querySelector('[data-sair]').onclick = () => db.sair();
+  raiz.querySelector('[data-sair]').onclick = () => sairAgora();
+  raiz.querySelector('[data-instalar]')?.addEventListener('click', instalar);
   raiz.querySelector('[data-perfil]').onclick = () => abrirPerfil(() => { montarCasca(); desenhar(); });
 }
 
@@ -65,8 +73,10 @@ window.addEventListener('perfil-mudou', () => { if (S.user) { montarCasca(); des
 function desenhar() {
   const r = rotaAtual();
   document.querySelectorAll('[data-rota]').forEach((a) => a.classList.toggle('ativa', a.dataset.rota === r ||
-    (a.dataset.rota === 'mais' && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais'].includes(r))));
+    (a.dataset.rota === 'mais' && a.closest('.inferior') && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais'].includes(r))));
   if (r === 'novidades') document.querySelector('.ponto-novo')?.remove();
+  const fab = document.querySelector('.fab');
+  if (fab) fab.hidden = !COM_FAB.includes(r);
   document.title = `${ROTAS[r].titulo} · Financeiro Pessoal`;
   const tela = document.getElementById('tela');
   try { ROTAS[r].view.render(tela); }
@@ -88,6 +98,7 @@ function telaLogin(msg = '') {
   const f = document.getElementById('f-login');
   f.onsubmit = async (e) => {
     e.preventDefault();
+    marcarAtividade();
     await comCarregando(f.querySelector('[data-acao=entrar]'), () => db.entrar(f.email.value.trim(), f.senha.value));
   };
   f.querySelector('[data-acao=esqueci]').onclick = async (e) => {
@@ -117,16 +128,28 @@ function telaCarregando(txt = 'Carregando…') {
 }
 
 let iniciado = false;
-async function aoLogar(session) {
-  if (!session) { iniciado = false; S.user = null; telaLogin(); return; }
+async function sairAgora(msg) {
+  desligarSessao(); iniciado = false;
+  await db.sair().catch(() => {});
+  if (msg) telaLogin(msg);
+}
+
+async function aoLogar(session, inicial = false) {
+  if (!session) { iniciado = false; S.user = null; desligarSessao(); telaLogin(); return; }
+  // app reaberto depois de muito tempo parado: pede login de novo
+  if (inicial && sessaoExpirada()) { await sairAgora('Sua sessão foi encerrada por inatividade. Entre novamente.'); return; }
   if (iniciado && S.user?.id === session.user.id) return;
   iniciado = true;
   S.user = session.user;
   telaCarregando('Carregando seus dados…');
   try {
     await recarregarTudo();
+    carregarDoPerfil();
+    await sincronizarRecorrentes().catch((e) => console.warn(e));
+    if (!iniciado || S.user?.id !== session.user.id) return; // saiu enquanto carregava
     montarCasca();
     desenhar();
+    ligarSessao(() => sairAgora('Sua sessão foi encerrada após um tempo sem uso. Entre novamente.'));
   } catch (e) {
     iniciado = false;
     raiz.innerHTML = `<div class="login"><div class="login-caixa"><div class="aviso erro">${esc(e.message)}</div>
@@ -142,8 +165,9 @@ async function iniciar() {
     return;
   }
   window.addEventListener('hashchange', () => { if (S.user) { desenhar(); window.scrollTo(0, 0); } });
-  db.aoMudarLogin((s, evento) => { if (evento === 'PASSWORD_RECOVERY') novaSenha(); aoLogar(s); });
-  aoLogar(await db.sessaoAtual());
+  db.aoMudarLogin((s, evento) => { if (evento === 'INITIAL_SESSION') return; if (evento === 'PASSWORD_RECOVERY') novaSenha(); aoLogar(s); });
+  aoLogar(await db.sessaoAtual(), true);
+  window.addEventListener('instalar-mudou', () => { if (S.user) { montarCasca(); desenhar(); } });
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('/sw.js').catch(() => {});

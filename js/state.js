@@ -9,6 +9,8 @@ export const S = {
   categorias: [],
   lancs: [],
   lotes: [],
+  recorrentes: [],
+  regras: [],
   ano: Number(hoje().slice(0, 4)),   // período selecionado (compartilhado entre telas)
   mes: Number(hoje().slice(5, 7)),   // 1..12, ou 0 = ano todo
   perfil: null,
@@ -38,8 +40,16 @@ export async function recarregarPerfil() {
   } catch { S.perfil = null; }
 }
 
+// tabelas novas: se ainda não existirem no banco, o app segue funcionando
+async function listarOpcional(t, ordem) { try { return await db.listar(t, ordem); } catch (e) { console.warn(t, e.message); return []; } }
+
+export async function recarregarExtras() {
+  const [recorrentes, regras] = await Promise.all([listarOpcional('recorrentes', 'descricao'), listarOpcional('regras_categoria', 'contem')]);
+  Object.assign(S, { recorrentes, regras });
+}
+
 export async function recarregarTudo() {
-  await Promise.all([recarregarCadastros(), recarregarLancamentos(), recarregarLotes(), recarregarPerfil()]);
+  await Promise.all([recarregarCadastros(), recarregarLancamentos(), recarregarLotes(), recarregarPerfil(), recarregarExtras()]);
 }
 
 export const nomeUsuario = () => (S.perfil && S.perfil.nome) || (S.user?.email || '').split('@')[0];

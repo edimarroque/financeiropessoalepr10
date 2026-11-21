@@ -33,7 +33,11 @@ def run(page, shots):
     page.screenshot(path=f'{shots}_cadastros.png', full_page=True)
 
     def novo():
-        page.click('.fab'); expect(page.locator('.modal')).to_be_visible()
+        if page.locator('.fab').is_visible(): page.click('.fab')
+        else:
+            page.evaluate("location.hash='#/lancamentos'"); expect(page.locator('#tela h1')).to_contain_text('Lançamentos')
+            page.locator('#tela [data-novo]').first.click()
+        expect(page.locator('.modal')).to_be_visible()
 
     def escolher(nome, texto):
         sel = page.locator(f'.modal [name={nome}]')
