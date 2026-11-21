@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 .vercel
 *.log
+tests/saida_*
+tests/fixtures/migracao_planilha_2026.csv
