@@ -16,7 +16,8 @@ const PASSOS = [
     'Para corrigir ou excluir, toque no lançamento.',
   ] },
   { icone: '📥', titulo: '3. Importe faturas e extratos', link: '#/importar', botao: 'Abrir Importar', itens: [
-    'Fatura do cartão: envie o PDF, escolha o cartão e o vencimento.',
+    'Fatura do cartão: envie o PDF, escolha o cartão e o vencimento. Use “Ler com IA” para mais precisão.',
+    'Extrato da conta em PDF (Itaú): escolha a conta como destino e “Ler com IA”. Confira a linha de conferência dos saldos.',
     'Extrato da conta: envie o arquivo OFX do banco.',
     'Confira a prévia: marque/desmarque linhas e ajuste categorias. O que já foi importado não entra de novo.',
     'Errou? Use “Desfazer” na lista de importações.',

@@ -1,6 +1,18 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.3.0', data: '2026-11-21', titulo: 'Leitura de PDF com IA',
+    novidades: [
+      '🤖 Importar → “Ler com IA (Gemini)”: lê a fatura do cartão XP e os extratos do Itaú (salário e pessoal) direto do PDF, no lugar dos Apps Scripts de conversão.',
+      '🏦 Extrato da conta em PDF: escolha a conta como destino; salário e PIX recebidos entram como receita e o restante como despesa.',
+      '✅ Conferência automática: total da fatura do PDF × total lido; no extrato, saldo final − saldo inicial × entradas − saídas.',
+      '📅 Aviso quando o vencimento lido no PDF é diferente do escolhido.',
+      '🔐 PDF com senha também é lido pela IA (as páginas são abertas aqui com a senha e enviadas como imagem).',
+      '🔁 Lançamento que já veio por outra importação (ex.: OFX e PDF do mesmo extrato) aparece como “parecido” e fica desmarcado.',
+    ],
+    correcoes: [],
+  },
+  {
     versao: '1.2.1', data: '2026-11-21', titulo: 'Sugestões de melhorias',
     novidades: [
       '💡 Campo “Sugestões de melhorias” no topo desta tela: anote correções e ideias, marque como feitas ou apague.',
@@ -55,5 +67,4 @@ export const VERSOES = [
 export const PROXIMAS = [
   '🎯 Metas financeiras (objetivo, prazo, valor mensal necessário e evolução).',
   '📈 Investimentos — renda fixa e renda variável.',
-  '📄 Leitura ajustada para os PDFs reais das faturas do XP e do Itaú.',
 ];

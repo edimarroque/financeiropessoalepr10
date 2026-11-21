@@ -50,6 +50,7 @@ def run(page, shots):
     page.set_input_files('[data-arquivo]', FIX + 'fatura_teste.pdf')
     sel = page.locator('[name=destino]')
     sel.select_option(sel.locator('option', has_text='Cartão XP').get_attribute('value'))
+    page.select_option('[name=leitor]', 'simples')
     expect(page.locator('[name=venc]')).to_have_value('2026-11-15')
     expect(page.locator('[name=paga]')).to_be_checked()
     page.click('[data-ler]')
@@ -75,6 +76,7 @@ def run(page, shots):
     # reimportar o mesmo PDF
     page.set_input_files('[data-arquivo]', FIX + 'fatura_teste.pdf')
     sel.select_option(sel.locator('option', has_text='Cartão XP').get_attribute('value'))
+    page.select_option('[name=leitor]', 'simples')
     page.click('[data-ler]')
     expect(page.locator('[data-importar]')).to_be_disabled()
     page.click('[data-voltar]')

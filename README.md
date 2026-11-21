@@ -40,7 +40,8 @@ sw.js / manifest      instalação como app
 
 ## Importar (tela 📥)
 
-- **PDF de fatura**: leitor genérico de linhas "dd/mm descrição [nn/nn] valor", com conferência contra o "Total desta fatura" do PDF. PDF com senha: informe a senha na tela.
+- **PDF com IA (Gemini)**: fatura de cartão ou extrato de conta, lidos pela função `api/ler-pdf.js` na Vercel (a chave fica na variável `GEMINI_API_KEY`; opcional `GEMINI_MODELS`). PDF com senha vai como imagens das páginas. Substitui os Apps Scripts de conversão.
+- **PDF de fatura (leitor simples)**: leitor genérico de linhas "dd/mm descrição [nn/nn] valor", com conferência contra o "Total desta fatura" do PDF. PDF com senha: informe a senha na tela.
 - **OFX** (extrato da conta): débito do boleto/fatura é sugerido como "Pagamento de fatura" (não conta como despesa).
 - **CSV** de banco (colunas Data, Descrição/Estabelecimento, Valor, Parcela) ou no **formato do app** (exportação/migração da planilha).
 - Prévia antes de gravar, categoria sugerida pelo histórico, parcelas futuras criadas automaticamente,
@@ -54,5 +55,4 @@ A cada ajuste: atualizar os dois, e o `CACHE` do `sw.js`.
 
 ## Próximas etapas
 
-- Ajustar a leitura para os PDFs reais do XP e do Itaú
 - Metas financeiras e investimentos

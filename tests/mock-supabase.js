@@ -51,7 +51,7 @@ export function createClient() {
       onAuthStateChange: (cb) => { ouvintes.push(cb); },
       signInWithPassword: async ({ email, password }) => {
         if (password !== 'senha123') return { data: null, error: { message: 'Invalid login credentials' } };
-        session = { user: { id: uid, email } };
+        session = { user: { id: uid, email }, access_token: 'tok-teste' };
         setTimeout(() => ouvintes.forEach((cb) => cb('SIGNED_IN', session)));
         return { data: { session }, error: null };
       },

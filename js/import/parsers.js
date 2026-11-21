@@ -254,3 +254,107 @@ export function itensDaFatura(linhasTexto, vencimento) {
   });
   return { formato: 'pdf', linhas, avisos: linhas.length ? [] : ['Não encontrei itens no formato "dd/mm descrição valor" neste PDF.'], totalDeclarado };
 }
+
+// ---------------- PDF lido pela IA (Gemini, via /api/ler-pdf) ----------------
+const LIMITE_ENVIO = 4_200_000; // corpo da requisição na Vercel: 4,5 MB
+
+function base64DeBytes(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** PDF com senha: o Gemini não abre, então mandamos as páginas como imagem (abertas aqui com a senha) */
+async function paginasComoImagens(buf, senha) {
+  const lib = await carregarPdfjs();
+  let doc;
+  try {
+    doc = await lib.getDocument({ data: new Uint8Array(buf), password: senha || undefined, isEvalSupported: false }).promise;
+  } catch (e) {
+    if (e && e.name === 'PasswordException') { const err = new Error(senha ? 'Senha do PDF incorreta.' : 'Este PDF tem senha.'); err.senha = true; throw err; }
+    throw new Error('Não consegui abrir o PDF: ' + (e.message || e));
+  }
+  if (doc.numPages > 30) throw new Error('PDF com mais de 30 páginas: divida o arquivo antes de importar.');
+  const imagens = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const vp = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    imagens.push({ mimeType: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.8).split(',')[1] });
+  }
+  return imagens;
+}
+
+/**
+ * Lê fatura (tipo 'cartao') ou extrato (tipo 'extrato') com o Gemini.
+ * Devolve o mesmo formato dos outros leitores, mais: modelo, vencimentoLido e, no extrato, variacaoDeclarada.
+ */
+export async function lerPdfComIA(buf, { tipo, senha, token }) {
+  const temSenha = await pdfTemSenha(buf);
+  const arquivos = temSenha
+    ? await paginasComoImagens(buf, senha)
+    : [{ mimeType: 'application/pdf', data: base64DeBytes(new Uint8Array(buf)) }];
+  const tamanho = arquivos.reduce((s, a) => s + a.data.length, 0);
+  if (tamanho > LIMITE_ENVIO) throw new Error('Arquivo grande demais para a leitura por IA (limite ~3 MB). Use o leitor simples ou divida o PDF.');
+
+  const r = await fetch('/api/ler-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tipo, arquivos }),
+  });
+  let j = {};
+  try { j = await r.json(); } catch { /* resposta não-JSON */ }
+  if (!r.ok) throw new Error(j.erro || `A leitura por IA falhou (erro ${r.status}).`);
+  return converterRespostaIA(j, tipo);
+}
+
+async function pdfTemSenha(buf) {
+  const lib = await carregarPdfjs();
+  try {
+    const tarefa = lib.getDocument({ data: new Uint8Array(buf.slice(0)), isEvalSupported: false });
+    await tarefa.promise;
+    tarefa.destroy();
+    return false;
+  } catch (e) {
+    if (e && e.name === 'PasswordException') return true;
+    throw new Error('Não consegui abrir o PDF: ' + (e.message || e));
+  }
+}
+
+/** Separado para os testes: transforma a resposta da IA no formato de importação */
+export function converterRespostaIA(j, tipo) {
+  const avisos = [];
+  const linhas = [];
+  (Array.isArray(j.lancamentos) ? j.lancamentos : []).forEach((x, i) => {
+    const data = lerData(x?.data);
+    const v = typeof x?.valor === 'number' ? x.valor : lerValor(x?.valor);
+    let desc = String(x?.descricao || '').trim();
+    if (!data || !Number.isFinite(v) || v === 0 || !desc) { avisos.push(`Item ${i + 1} da IA ignorado (data, valor ou descrição inválida).`); return; }
+    let num = Number.isInteger(x?.parcelaAtual) ? x.parcelaAtual : null;
+    let total = Number.isInteger(x?.parcelaTotal) ? x.parcelaTotal : null;
+    if (!num || !total || num > total || total > 99) {
+      const p = lerParcela(desc); num = p.num; total = p.total;
+    }
+    desc = desc.replace(/\s*(PARC(ELA)?\.?\s*)?\d{1,2}\s*(DE|\/)\s*\d{1,2}\s*$/i, '').trim() || desc;
+    const portador = tipo === 'cartao' && x?.portador ? String(x.portador).trim() : '';
+    linhas.push({
+      ref: i + 1, data, descricao: desc, valor: Math.round(Math.abs(v) * 100) / 100, sinal: v > 0 ? 1 : -1,
+      parcela_num: num, parcela_total: total, portador,
+      ignorarSugerido: tipo === 'cartao' && RX_IGNORAR.test(semAcento(desc)),
+    });
+  });
+  if (!linhas.length) avisos.unshift('A IA não encontrou lançamentos neste arquivo.');
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+  const ini = num(j.saldoInicial), fim = num(j.saldoFinal);
+  return {
+    formato: 'pdf-ia', linhas, avisos, modelo: j.modelo || '',
+    totalDeclarado: tipo === 'cartao' && num(j.totalFatura) != null ? Math.abs(num(j.totalFatura)) : null,
+    vencimentoLido: lerData(j.vencimento),
+    periodo: [lerData(j.periodoInicio), lerData(j.periodoFim)],
+    variacaoDeclarada: tipo === 'extrato' && ini != null && fim != null ? Math.round((fim - ini) * 100) / 100 : null,
+  };
+}

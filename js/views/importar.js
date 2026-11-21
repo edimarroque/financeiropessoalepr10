@@ -3,12 +3,12 @@ import * as db from '../db.js';
 import { S, recarregarLancamentos, recarregarLotes, cartaoPorId, contaPorId } from '../state.js';
 import { hoje, fmtData, somarMeses, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
-import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, decodificar, normDesc, chavesDesc } from '../import/parsers.js';
+import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, lerPdfComIA, decodificar, normDesc, chavesDesc } from '../import/parsers.js';
 
 // estado da importação em andamento
 let imp = null;
 
-const ORIGEM_ROT = { fatura_pdf: '📄 Fatura PDF', ofx: '🏦 Extrato OFX', csv: '📑 CSV', planilha: '📊 Planilha/CSV do app' };
+const ORIGEM_ROT = { fatura_pdf: '📄 Fatura PDF', extrato_pdf: '📄 Extrato PDF', ofx: '🏦 Extrato OFX', csv: '📑 CSV', planilha: '📊 Planilha/CSV do app' };
 
 export function render(el) {
   if (imp && imp.etapa === 'previa') return renderPrevia(el);
@@ -24,7 +24,7 @@ function renderInicio(el) {
     <div class="topo-tela"><h1>Importar</h1></div>
     <section class="cartao-bloco">
       <h2>1. Escolha o arquivo</h2>
-      <p class="dica">PDF da fatura do cartão, extrato OFX da conta ou CSV. Nada é gravado antes de você conferir a prévia.</p>
+      <p class="dica">PDF da fatura do cartão ou do extrato da conta, extrato OFX ou CSV. Nada é gravado antes de você conferir a prévia.</p>
       <label class="arquivo">
         <input type="file" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv" data-arquivo>
         <span>📎 Selecionar arquivo</span>
@@ -41,9 +41,15 @@ function renderInicio(el) {
             <optgroup label="Contas (extrato)">${contas.map((c) => `<option value="conta:${c.id}">🏦 ${esc(c.nome)}</option>`).join('')}</optgroup>
           </select>
         </label>
-        <div class="linha2" data-bloco="fatura">
-          <label>Vencimento desta fatura <select name="venc"></select></label>
-          <label>Senha do PDF (se tiver) <input name="senha" type="password" autocomplete="off" placeholder="opcional"></label>
+        <label data-bloco="leitor">Como ler o PDF
+          <select name="leitor">
+            <option value="ia">🤖 Ler com IA (Gemini) — fatura ou extrato, mais preciso</option>
+            <option value="simples">📄 Leitor simples (sem IA, só fatura de cartão)</option>
+          </select>
+        </label>
+        <div class="linha2">
+          <label data-bloco="fatura">Vencimento desta fatura <select name="venc"></select></label>
+          <label data-bloco="senha">Senha do PDF (se tiver) <input name="senha" type="password" autocomplete="off" placeholder="opcional"></label>
         </div>
         <label class="check" data-bloco="fatura"><input type="checkbox" name="futuras" checked> Criar as parcelas futuras das compras parceladas (ex.: 6/10 cria 7/10 até 10/10)</label>
         <label class="check" data-bloco="fatura"><input type="checkbox" name="paga"> Esta fatura já foi paga</label>
@@ -88,7 +94,8 @@ function renderInicio(el) {
     el.querySelectorAll('[data-bloco=fatura]').forEach((x) => x.hidden = app || q !== 'cartao' || ext === 'ofx');
     el.querySelector('[data-bloco=tipo-dest]').hidden = app;
     el.querySelector('[data-bloco=app]').hidden = !app;
-    el.querySelector('[name=senha]').closest('label').hidden = ext !== 'pdf';
+    el.querySelector('[data-bloco=senha]').hidden = ext !== 'pdf';
+    el.querySelector('[data-bloco=leitor]').hidden = ext !== 'pdf';
   }
 
   arq.onchange = async () => {
@@ -116,14 +123,24 @@ function renderInicio(el) {
     const cfg = {
       arquivo: arquivo.name, ext, destTipo: ext === 'csv-app' ? 'app' : q, destId: id,
       venc: selVenc.value, futuras: el.querySelector('[name=futuras]').checked, paga: el.querySelector('[name=paga]').checked,
+      ia: ext === 'pdf' && el.querySelector('[name=leitor]').value === 'ia',
     };
     if (cfg.destTipo !== 'app' && !id) return toast('Escolha o destino.', 'erro');
     await comCarregando(e.currentTarget, async () => {
       const buf = await arquivo.arrayBuffer();
       let lido;
-      if (ext === 'pdf') {
-        if (q !== 'cartao') throw new Error('PDF de fatura precisa ter um cartão como destino.');
-        const linhas = await textoDoPDF(buf, el.querySelector('[name=senha]').value);
+      const senha = el.querySelector('[name=senha]').value;
+      if (ext === 'pdf' && cfg.ia) {
+        const sessao = await db.sessaoAtual();
+        if (!sessao) throw new Error('Sua sessão expirou. Entre de novo.');
+        lido = await lerPdfComIA(buf, { tipo: q === 'cartao' ? 'cartao' : 'extrato', senha, token: sessao.access_token });
+        lido.alertas = [];
+        if (q === 'cartao' && lido.vencimentoLido && lido.vencimentoLido !== cfg.venc) {
+          lido.alertas.push(`O PDF diz que o vencimento é ${fmtData(lido.vencimentoLido)}, mas você escolheu ${fmtData(cfg.venc)}. Se estiver errado, volte e troque o vencimento.`);
+        }
+      } else if (ext === 'pdf') {
+        if (q !== 'cartao') throw new Error('O leitor simples só lê fatura de cartão. Para extrato em PDF, escolha “Ler com IA”.');
+        const linhas = await textoDoPDF(buf, senha);
         lido = itensDaFatura(linhas, cfg.venc);
         lido.textoBruto = linhas;
       } else if (ext === 'ofx') lido = lerOFX(decodificar(buf));
@@ -264,7 +281,8 @@ function preparar() {
     L.dup = existentes.has(L.chave);
     if (!L.dup) {
       const k0 = normDesc(L.descricao);
-      L.parecido = S.lancs.some((x) => !x.chave_dedup && x.tipo === L.tipo && centavos(x.valor) === centavos(L.valor) &&
+      const prefixo = L.chave.split(':')[0];
+      L.parecido = S.lancs.some((x) => (!x.chave_dedup || x.chave_dedup.split(':')[0] !== prefixo) && x.tipo === L.tipo && centavos(x.valor) === centavos(L.valor) &&
         x.data_movimento === L.data_movimento && (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id) &&
         (!k0 || normDesc(x.descricao) === k0 || normDesc(x.descricao).split(' ')[0] === k0.split(' ')[0]));
     }
@@ -316,7 +334,15 @@ function renderPrevia(el) {
   if (lido.totalDeclarado != null) {
     const ok = Math.abs(lido.totalDeclarado - totalArquivo) < 0.02;
     conferencia = `<div class="aviso ${ok ? 'ok' : ''}">${ok ? '✅' : '⚠️'} Total da fatura no PDF: <b>${brl(lido.totalDeclarado)}</b> · total marcado: <b>${brl(totalArquivo)}</b>${ok ? '' : ' — confira se faltou alguma linha (pagamentos e encargos podem explicar a diferença).'}</div>`;
+  } else if (lido.variacaoDeclarada != null) {
+    const variacao = arred(-totalArquivo);
+    const ok = Math.abs(lido.variacaoDeclarada - variacao) < 0.02;
+    conferencia = `<div class="aviso ${ok ? 'ok' : ''}">${ok ? '✅' : '⚠️'} Saldo final menos saldo inicial no PDF: <b>${brl(lido.variacaoDeclarada)}</b> · entradas menos saídas marcadas: <b>${brl(variacao)}</b>${ok ? '' : ' — confira se faltou ou sobrou alguma linha.'}</div>`;
   }
+  if (lido.formato === 'pdf-ia') {
+    conferencia = `<p class="dica">🤖 Lido pela IA${lido.modelo ? ` (${esc(lido.modelo)})` : ''}. Confira os valores com o PDF antes de importar.</p>` + conferencia;
+  }
+  for (const a of lido.alertas || []) conferencia += `<div class="aviso">⚠️ ${esc(a)}</div>`;
 
   el.innerHTML = `
     <div class="topo-tela"><h1>Prévia da importação</h1><button class="btn" data-voltar>← Voltar</button></div>
@@ -422,12 +448,12 @@ async function gravar(botao, el) {
   const { cfg, linhas } = imp;
   const sel = linhas.filter((l) => l.incluir && !l.dup && !l.erro);
   if (!sel.length) return;
-  const origem = cfg.destTipo === 'app' ? 'planilha' : cfg.ext === 'pdf' ? 'fatura_pdf' : cfg.ext === 'ofx' ? 'ofx' : 'csv';
+  const origem = cfg.destTipo === 'app' ? 'planilha' : cfg.ext === 'pdf' ? (cfg.destTipo === 'conta' ? 'extrato_pdf' : 'fatura_pdf') : cfg.ext === 'ofx' ? 'ofx' : 'csv';
   const destinoTxt = cfg.destTipo === 'cartao' ? `${cartaoPorId(cfg.destId).nome} venc. ${fmtData(cfg.venc)}` : cfg.destTipo === 'conta' ? contaPorId(cfg.destId).nome : 'vários destinos';
   const total = arred(sel.reduce((s, l) => s + (l.tipo === 'entrada' ? -1 : 1) * Number(l.valor), 0));
   const grupos = new Map(); // agrupa a parcela lida com as futuras criadas
   await comCarregando(botao, async () => {
-    const [lote] = await db.inserir('lotes_importacao', [{ origem, descricao: `${ORIGEM_ROT[origem]} · ${destinoTxt} · ${cfg.arquivo}`, quantidade: sel.length, total }]);
+    const [lote] = await db.inserir('lotes_importacao', [{ origem, descricao: `${ORIGEM_ROT[origem]}${cfg.ia ? ' (IA)' : ''} · ${destinoTxt} · ${cfg.arquivo}`, quantidade: sel.length, total }]);
     const registros = sel.map((l) => {
       let grupo = null;
       if (l.parcela_total && cfg.destTipo === 'cartao') {
