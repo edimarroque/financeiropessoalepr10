@@ -25,11 +25,17 @@ const PASSOS = [
     'Confira a prévia: marque/desmarque linhas e ajuste categorias. O que já foi importado não entra de novo.',
     'Errou? Use “Desfazer” na lista de importações.',
   ] },
-  { icone: '💳', titulo: '4. Pague as faturas', link: '#/cartoes', botao: 'Abrir Cartões', itens: [
+  { icone: '🤖', titulo: '4. Use a IA, o Telegram e o Drive', link: '#/integracoes', botao: 'Abrir Integrações', itens: [
+    'Assistente IA: “Gerar análise” mostra onde estão os maiores gastos, juros e o que cortar; em “Perguntar” você conversa sobre os seus números.',
+    'Telegram: crie seu bot no @BotFather, cole o token em Integrações e toque em Iniciar. Depois é só escrever “mercado 87,50 débito” ou mandar a foto do cupom.',
+    'Google Drive: siga os 4 passos em Integrações (copiar o script e colar no script.new). PDFs colocados em 00_Caixa_de_Entrada aparecem em Importar.',
+    'Depois de importar, o arquivo vai sozinho para 01_Arquivo_por_Mes/AAAA/AAAA-MM — assim você sabe o que já foi usado.',
+  ] },
+  { icone: '💳', titulo: '5. Pague as faturas', link: '#/cartoes', botao: 'Abrir Cartões', itens: [
     'Em Cartões, escolha a fatura e toque em “Pagar fatura”.',
     'Informe a conta de onde saiu o dinheiro. Os itens ficam pagos e o saldo da conta é atualizado.',
   ] },
-  { icone: '📊', titulo: '5. Acompanhe', link: '#/dashboards', botao: 'Abrir Dashboards', itens: [
+  { icone: '📊', titulo: '6. Acompanhe', link: '#/dashboards', botao: 'Abrir Dashboards', itens: [
     'Painel: resumo do mês, saldo das contas, calendário de gastos e faturas.',
     'Dashboards: comparativos, categorias mês a mês, maiores gastos e formas de pagamento.',
     'Escolha o mês e o ano no topo das telas (ou “Ano todo”).',
@@ -40,6 +46,8 @@ const PASSOS = [
 ];
 
 const DICAS = [
+  ['Caixa de entrada × Arquivo', 'No Drive, 00_Caixa_de_Entrada guarda o que ainda não foi lançado; 01_Arquivo_por_Mes guarda o que já foi usado, separado por ano e mês (Faturas, Extratos, Recibos e Relatórios).'],
+  ['Comandos do bot', '/resumo, /saldo, /faturas, /contas, /relatorio e /ajuda. Pergunta termina com “?”.'],
   ['Regras de categoria', 'Em Cadastros → Regras: “se a descrição contém PEDAGIO, use Pedágio”. O app também sugere regras que aprendeu com seus lançamentos.'],
   ['Remover importação', 'Em Importar → Importações feitas → Remover. Apaga todos os lançamentos daquela importação para você importar de novo.'],
   ['Situação', 'Pago/Recebido = já saiu ou entrou na conta. Pendente = ainda vai acontecer. Toque na etiqueta para trocar.'],
@@ -50,7 +58,7 @@ const DICAS = [
 
 export function render(el) {
   el.innerHTML = `
-    <div class="topo-tela"><div><h1>Como usar</h1><p class="dica">Guia rápido em 5 passos</p></div><a class="btn" href="#/novidades">✨ Novidades</a></div>
+    <div class="topo-tela"><div><h1>Como usar</h1><p class="dica">Guia rápido em 6 passos</p></div><a class="btn" href="#/novidades">✨ Novidades</a></div>
     <div class="guia">
       ${PASSOS.map((p) => `
         <section class="cartao-bloco passo">

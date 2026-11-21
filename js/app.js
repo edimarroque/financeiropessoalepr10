@@ -12,6 +12,9 @@ import * as dashboards from './views/dashboards.js';
 import * as novidades from './views/novidades.js';
 import * as ajuda from './views/ajuda.js';
 import * as patrimonio from './views/patrimonio.js';
+import * as assistente from './views/assistente.js';
+import * as integracoes from './views/integracoes.js';
+import * as relatorio from './views/relatorio.js';
 import { registrarPatrimonio } from './servicos/patrimonio.js';
 import { atualizarCotacao } from './servicos/cotacao.js';
 import { abrirFormLancamento } from './views/form-lancamento.js';
@@ -30,8 +33,11 @@ const ROTAS = {
   cartoes: { titulo: 'Cartões', icone: '💳', view: cartoes, grupo: 'principal' },
   dashboards: { titulo: 'Dashboards', icone: '📊', view: dashboards, grupo: 'principal' },
   patrimonio: { titulo: 'Patrimônio', icone: '💎', view: patrimonio, grupo: 'principal' },
+  assistente: { titulo: 'Assistente IA', icone: '🤖', view: assistente, grupo: 'principal' },
   importar: { titulo: 'Importar', icone: '📥', view: importar, grupo: 'gestao' },
   cadastros: { titulo: 'Cadastros', icone: '⚙️', view: cadastros, grupo: 'gestao' },
+  relatorio: { titulo: 'Relatório mensal', icone: '📄', view: relatorio, grupo: 'gestao' },
+  integracoes: { titulo: 'Integrações', icone: '🔌', view: integracoes, grupo: 'gestao' },
   ajuda: { titulo: 'Como usar', icone: '❓', view: ajuda, grupo: 'ajuda' },
   novidades: { titulo: 'Novidades', icone: '✨', view: novidades, grupo: 'ajuda' },
   mais: { titulo: 'Mais e ajustes', icone: '🎛️', view: mais, grupo: 'gestao' },
@@ -77,7 +83,7 @@ window.addEventListener('perfil-mudou', () => { if (S.user) { montarCasca(); des
 function desenhar() {
   const r = rotaAtual();
   document.querySelectorAll('[data-rota]').forEach((a) => a.classList.toggle('ativa', a.dataset.rota === r ||
-    (a.dataset.rota === 'mais' && a.closest('.inferior') && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais', 'patrimonio'].includes(r))));
+    (a.dataset.rota === 'mais' && a.closest('.inferior') && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais', 'patrimonio', 'assistente', 'integracoes', 'relatorio'].includes(r))));
   if (r === 'novidades') document.querySelector('.ponto-novo')?.remove();
   const fab = document.querySelector('.fab');
   if (fab) fab.hidden = !COM_FAB.includes(r);

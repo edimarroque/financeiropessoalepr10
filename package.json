@@ -1,0 +1,7 @@
+{
+  "name": "financeiropessoalepr10",
+  "private": true,
+  "type": "module",
+  "description": "Financeiro Pessoal EPR10 — site estático + funções /api da Vercel (sem dependências)",
+  "engines": { "node": ">=20" }
+}

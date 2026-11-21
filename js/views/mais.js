@@ -25,7 +25,7 @@ const celula = (v) => {
   return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export function exportarCSV() {
+export function exportarCSVTexto() {
   const rot = { entrada: '⬆️ Entrada', saida: '⬇️ Saída', transferencia: '🔁 Transferência', pagamento_fatura: '💳 Pagamento da Fatura' };
   const cab = ['Data da Movimentação', 'Data do Pagamento', 'Tipo', 'Categoria', 'Descrição', 'Valor', 'Conta Bancária', 'Conta Destino', 'Cartão', 'Método de Pagamento', 'Nº da Parcela', 'Situação'];
   const linhas = S.lancs.slice().sort((a, b) => a.data_movimento.localeCompare(b.data_movimento)).map((l) => {
@@ -35,15 +35,22 @@ export function exportarCSV() {
       cartaoPorId(l.cartao_id)?.nome || '', l.metodo, l.parcela_total ? `${l.parcela_num} de ${l.parcela_total}` : '',
       { pago: 'Pago', pendente: 'Pendente', recebido: 'Recebido' }[l.situacao]].map(celula).join(';');
   });
-  baixar(`lancamentos_${hoje()}.csv`, '﻿' + [cab.join(';'), ...linhas].join('\r\n'), 'text/csv;charset=utf-8');
-  toast(`${linhas.length} lançamentos exportados.`);
+  return '﻿' + [cab.join(';'), ...linhas].join('\r\n');
+}
+
+export function exportarCSV() {
+  baixar(`lancamentos_${hoje()}.csv`, exportarCSVTexto(), 'text/csv;charset=utf-8');
+  toast(`${S.lancs.length} lançamentos exportados.`);
+}
+
+export function backupObjeto() {
+  return { versao: VERSAO, gerado_em: new Date().toISOString(), contas: S.contas, cartoes: S.cartoes, categorias: S.categorias, lancamentos: S.lancs,
+    recorrentes: S.recorrentes, regras: S.regras, metas: S.metas, metas_movimentos: S.metasMov, investimentos: S.investimentos, investimentos_historico: S.invHist,
+    dividas: S.dividas, dividas_pagamentos: S.dividasPag, patrimonio_mensal: S.patrimonio };
 }
 
 export function backupJSON() {
-  const dados = { versao: VERSAO, gerado_em: new Date().toISOString(), contas: S.contas, cartoes: S.cartoes, categorias: S.categorias, lancamentos: S.lancs,
-    recorrentes: S.recorrentes, regras: S.regras, metas: S.metas, metas_movimentos: S.metasMov, investimentos: S.investimentos, investimentos_historico: S.invHist,
-    dividas: S.dividas, dividas_pagamentos: S.dividasPag, patrimonio_mensal: S.patrimonio };
-  baixar(`backup_financeiro_${hoje()}.json`, JSON.stringify(dados, null, 2), 'application/json');
+  baixar(`backup_financeiro_${hoje()}.json`, JSON.stringify(backupObjeto(), null, 2), 'application/json');
   toast('Backup gerado.');
 }
 
@@ -96,7 +103,10 @@ export function render(el) {
     <div class="atalhos">
       <a href="#/importar"><span>📥</span>Importar</a>
       <a href="#/cadastros"><span>⚙️</span>Cadastros</a>
+      <a href="#/assistente"><span>🤖</span>Assistente IA</a>
       <a href="#/patrimonio"><span>💎</span>Patrimônio</a>
+      <a href="#/integracoes"><span>🔌</span>Integrações <small>Telegram · Drive</small></a>
+      <a href="#/relatorio"><span>📄</span>Relatório mensal</a>
       <a href="#/dashboards"><span>📊</span>Dashboards</a>
       <a href="#/ajuda"><span>❓</span>Como usar</a>
       <a href="#/novidades"><span>✨</span>Novidades <small>v${VERSAO}</small></a>

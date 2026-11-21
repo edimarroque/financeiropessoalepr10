@@ -487,3 +487,203 @@ begin
   end loop;
 end $$;
 drop function if exists public.mfa_ok();
+
+-- =====================================================================
+-- v1.6.0 — IA, Telegram, Google Drive, relatório mensal, avisos e backup
+-- Funções srv_* são chamadas SÓ pelas funções da Vercel (cron, Telegram), protegidas por um segredo do servidor
+-- guardado em privado.config (e na variável APP_SECRET da Vercel). Não são usadas pelo navegador.
+-- =====================================================================
+create schema if not exists privado;
+create table if not exists privado.config (chave text primary key, valor text not null);
+revoke all on privado.config from public, anon, authenticated;
+
+create table if not exists public.integracoes (
+  user_id           uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  telegram_token    text,
+  telegram_bot      text,
+  telegram_chat_id  bigint,
+  telegram_segredo  text,
+  telegram_codigo   text,
+  telegram_codigo_em timestamptz,
+  drive_url         text,
+  drive_token       text,
+  avisos_dias       smallint not null default 3 check (avisos_dias between 0 and 15),
+  avisos_ativos     boolean not null default true,
+  relatorio_mensal  boolean not null default true,
+  backup_semanal    boolean not null default true,
+  ultimo_backup     timestamptz,
+  updated_at        timestamptz not null default now()
+);
+
+create table if not exists public.caixa_entrada (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  origem           text not null default 'telegram',
+  nome             text not null default '',
+  mime             text not null default '',
+  tamanho          integer not null default 0,
+  telegram_file_id text,
+  drive_file_id    text,
+  status           text not null default 'novo' check (status in ('novo','importado','descartado')),
+  lote_id          uuid references public.lotes_importacao(id) on delete set null,
+  obs              text not null default '',
+  created_at       timestamptz not null default now()
+);
+
+create table if not exists public.ia_analises (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  tipo       text not null default 'analise',
+  periodo    text not null default '',
+  conteudo   jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table public.lotes_importacao add column if not exists drive_file_id text;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['integracoes','caixa_entrada','ia_analises'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "dono_select" on public.%I', t);
+    execute format('drop policy if exists "dono_insert" on public.%I', t);
+    execute format('drop policy if exists "dono_update" on public.%I', t);
+    execute format('drop policy if exists "dono_delete" on public.%I', t);
+    execute format('create policy "dono_select" on public.%I for select using (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_insert" on public.%I for insert with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_update" on public.%I for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_delete" on public.%I for delete using (user_id = (select auth.uid()))', t);
+    execute format('drop policy if exists "exige_2_etapas" on public.%I', t);
+    execute format('create policy "exige_2_etapas" on public.%I as restrictive for all to authenticated using ((select privado.mfa_ok())) with check ((select privado.mfa_ok()))', t);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
+  end loop;
+end $$;
+create index if not exists caixa_user_idx on public.caixa_entrada (user_id);
+create index if not exists caixa_lote_idx on public.caixa_entrada (lote_id);
+create index if not exists ia_user_idx on public.ia_analises (user_id);
+
+-- ---------------- funções do servidor ----------------
+create or replace function privado.segredo_ok(p text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from privado.config where chave = 'app_secret' and valor = p and length(p) >= 32);
+$$;
+
+create or replace function public.srv_tg_contexto(p_segredo text, p_tg_segredo text) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare i public.integracoes; r jsonb;
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  select * into i from public.integracoes where telegram_segredo = p_tg_segredo and p_tg_segredo is not null and length(p_tg_segredo) >= 20;
+  if i.user_id is null then return null; end if;
+  select jsonb_build_object(
+    'user_id', i.user_id, 'token', i.telegram_token, 'bot', i.telegram_bot, 'chat_id', i.telegram_chat_id,
+    'codigo', i.telegram_codigo, 'codigo_em', i.telegram_codigo_em, 'drive_url', i.drive_url, 'drive_token', i.drive_token,
+    'categorias', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nome', c.nome, 'emoji', c.emoji, 'tipo', c.tipo, 'grupo', c.grupo, 'valor_mensal', c.valor_mensal)) from public.categorias c where c.user_id = i.user_id and c.ativo), '[]'),
+    'contas', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nome', c.nome, 'moeda', c.moeda, 'saldo_inicial', c.saldo_inicial, 'data_saldo', c.data_saldo)) from public.contas c where c.user_id = i.user_id and c.ativo), '[]'),
+    'cartoes', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'nome', c.nome, 'dia_fechamento', c.dia_fechamento, 'dia_vencimento', c.dia_vencimento, 'limite', c.limite)) from public.cartoes c where c.user_id = i.user_id and c.ativo), '[]'),
+    'regras', coalesce((select jsonb_agg(jsonb_build_object('contem', g.contem, 'tipo', g.tipo, 'categoria_id', g.categoria_id)) from public.regras_categoria g where g.user_id = i.user_id), '[]')
+  ) into r;
+  return r;
+end $$;
+
+create or replace function public.srv_tg_vincular(p_segredo text, p_user uuid, p_chat bigint) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  update public.integracoes set telegram_chat_id = p_chat, telegram_codigo = null, updated_at = now() where user_id = p_user;
+end $$;
+
+create or replace function public.srv_inserir_lancamentos(p_segredo text, p_user uuid, p_lote jsonb, p_linhas jsonb) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare v_lote uuid; v_ids jsonb;
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  insert into public.lotes_importacao (user_id, origem, descricao, quantidade, total, drive_file_id)
+  values (p_user, coalesce(p_lote->>'origem', 'telegram'), coalesce(p_lote->>'descricao', ''), jsonb_array_length(p_linhas),
+          coalesce((select sum((x->>'valor')::numeric) from jsonb_array_elements(p_linhas) x), 0), p_lote->>'drive_file_id')
+  returning id into v_lote;
+  with novos as (
+    insert into public.lancamentos (user_id, data_movimento, data_pagamento, tipo, categoria_id, descricao, valor, conta_id, cartao_id,
+      metodo, parcela_num, parcela_total, grupo_parcela, situacao, origem, lote_id, chave_dedup, tags, moeda, valor_moeda, cotacao)
+    select p_user, r.data_movimento, r.data_pagamento, r.tipo, r.categoria_id, r.descricao, r.valor, r.conta_id, r.cartao_id,
+      coalesce(r.metodo, ''), r.parcela_num, r.parcela_total, r.grupo_parcela, r.situacao, coalesce(r.origem, 'telegram'), v_lote, r.chave_dedup,
+      coalesce(r.tags, '{}'), coalesce(r.moeda, 'BRL'), r.valor_moeda, r.cotacao
+    from jsonb_populate_recordset(null::public.lancamentos, p_linhas) r
+    where (r.conta_id is null or exists (select 1 from public.contas c where c.id = r.conta_id and c.user_id = p_user))
+      and (r.cartao_id is null or exists (select 1 from public.cartoes c where c.id = r.cartao_id and c.user_id = p_user))
+      and (r.categoria_id is null or exists (select 1 from public.categorias c where c.id = r.categoria_id and c.user_id = p_user))
+    returning id
+  ) select coalesce(jsonb_agg(id), '[]') into v_ids from novos;
+  return jsonb_build_object('lote_id', v_lote, 'ids', v_ids);
+end $$;
+
+create or replace function public.srv_remover_lote(p_segredo text, p_user uuid, p_lote uuid) returns integer
+language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  delete from public.lancamentos where lote_id = p_lote and user_id = p_user;
+  get diagnostics n = row_count;
+  delete from public.lotes_importacao where id = p_lote and user_id = p_user;
+  return n;
+end $$;
+
+create or replace function public.srv_dados(p_segredo text, p_user uuid, p_desde date) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  return jsonb_build_object(
+    'perfil', (select to_jsonb(p) from public.perfis p where p.user_id = p_user),
+    'contas', coalesce((select jsonb_agg(to_jsonb(c) - 'imagem') from public.contas c where c.user_id = p_user), '[]'),
+    'cartoes', coalesce((select jsonb_agg(to_jsonb(c) - 'imagem') from public.cartoes c where c.user_id = p_user), '[]'),
+    'categorias', coalesce((select jsonb_agg(to_jsonb(c)) from public.categorias c where c.user_id = p_user), '[]'),
+    'lancamentos', coalesce((select jsonb_agg(to_jsonb(l) - 'comprovante_mini' order by l.data_pagamento) from public.lancamentos l where l.user_id = p_user and (p_desde is null or l.data_pagamento >= p_desde or (l.situacao = 'pendente'))), '[]'),
+    'recorrentes', coalesce((select jsonb_agg(to_jsonb(x)) from public.recorrentes x where x.user_id = p_user), '[]'),
+    'metas', coalesce((select jsonb_agg(to_jsonb(x)) from public.metas x where x.user_id = p_user), '[]'),
+    'metas_movimentos', coalesce((select jsonb_agg(to_jsonb(x)) from public.metas_movimentos x where x.user_id = p_user), '[]'),
+    'investimentos', coalesce((select jsonb_agg(to_jsonb(x)) from public.investimentos x where x.user_id = p_user), '[]'),
+    'dividas', coalesce((select jsonb_agg(to_jsonb(x)) from public.dividas x where x.user_id = p_user), '[]'),
+    'regras', coalesce((select jsonb_agg(to_jsonb(x)) from public.regras_categoria x where x.user_id = p_user), '[]')
+  );
+end $$;
+
+create or replace function public.srv_caixa_inserir(p_segredo text, p_user uuid, p_item jsonb) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare v uuid;
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  insert into public.caixa_entrada (user_id, origem, nome, mime, tamanho, telegram_file_id, drive_file_id, obs)
+  values (p_user, coalesce(p_item->>'origem', 'telegram'), coalesce(p_item->>'nome', ''), coalesce(p_item->>'mime', ''), coalesce((p_item->>'tamanho')::int, 0),
+          p_item->>'telegram_file_id', p_item->>'drive_file_id', coalesce(p_item->>'obs', ''))
+  returning id into v;
+  return v;
+end $$;
+
+create or replace function public.srv_integracoes(p_segredo text) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  return coalesce((select jsonb_agg(to_jsonb(i)) from public.integracoes i), '[]');
+end $$;
+
+create or replace function public.srv_marcar_backup(p_segredo text, p_user uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  update public.integracoes set ultimo_backup = now() where user_id = p_user;
+end $$;
+
+revoke execute on function privado.segredo_ok(text) from public, anon, authenticated;
+do $$
+declare f text;
+begin
+  foreach f in array array['srv_tg_contexto(text,text)','srv_tg_vincular(text,uuid,bigint)','srv_inserir_lancamentos(text,uuid,jsonb,jsonb)',
+    'srv_remover_lote(text,uuid,uuid)','srv_dados(text,uuid,date)','srv_caixa_inserir(text,uuid,jsonb)','srv_integracoes(text)','srv_marcar_backup(text,uuid)'] loop
+    execute format('revoke execute on function public.%s from public, authenticated', f);
+    execute format('grant execute on function public.%s to anon', f);
+  end loop;
+end $$;
+-- Depois de rodar: gravar o segredo do servidor (o MESMO valor da variável APP_SECRET da Vercel):
+-- insert into privado.config (chave, valor) values ('app_secret', '<valor>') on conflict (chave) do update set valor = excluded.valor;

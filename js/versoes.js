@@ -1,6 +1,21 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.0', data: '2026-11-21', titulo: 'IA, Telegram e Google Drive',
+    novidades: [
+      '🤖 Assistente IA (Gemini): botão “Gerar análise” com nota de saúde financeira, maiores gastos, juros/IOF/tarifas, desperdícios, economia possível e ações para o mês. Só roda quando você pede.',
+      '💬 Chat com IA sobre os seus dados: pergunte “onde estou gastando mais?”, “que assinaturas cortar?”… (vê os totais de 6 meses e os lançamentos de 90 dias).',
+      '✈️ Bot do Telegram (o seu bot): lance gastos escrevendo (“uber 23,90 cartão xp”, “notebook 3000 em 10x”), mande a foto do cupom, envie PDFs de fatura/extrato e faça perguntas. Botão “Desfazer” em cada lançamento.',
+      '📥 Caixa de entrada em Importar: PDFs da pasta 00_Caixa_de_Entrada do Drive e os enviados pelo Telegram. Depois de importar, o arquivo vai sozinho para 01_Arquivo_por_Mes/AAAA/AAAA-MM (já usado), com nome padrão.',
+      '📁 Google Drive organizado por ano/mês: faturas, extratos, recibos (foto original do comprovante) e relatórios; backups em 02_Backups.',
+      '📄 Relatório mensal: ver, imprimir/salvar PDF, salvar no Drive e enviar no Telegram. Todo dia 1º chega sozinho.',
+      '⏰ Avisos de vencimento no Telegram (contas, boletos e faturas), com antecedência configurável.',
+      '💾 Backup automático semanal no Google Drive (JSON + CSV) e botão “Fazer backup agora”.',
+      '🔌 Nova tela Integrações (Mais e ajustes) com o passo a passo do Telegram e do Drive.',
+    ],
+    correcoes: ['Valores digitados como “12.000” agora são entendidos como doze mil.', 'Formulários: o cursor não pula mais para o primeiro campo enquanto você digita.'],
+  },
+  {
     versao: '1.5.0', data: '2026-11-21', titulo: 'Planejamento e patrimônio',
     novidades: [
       '💎 Nova tela Patrimônio: patrimônio líquido (contas + investimentos + a receber − dívidas) com gráfico de evolução mês a mês, registrado automaticamente.',
@@ -98,7 +113,5 @@ export const VERSOES = [
 ];
 
 export const PROXIMAS = [
-  '🤖 Análise financeira e chat com IA (Gemini) sobre os seus dados.',
-  '✈️ Bot do Telegram: lançar gastos por texto ou foto, enviar PDFs e perguntar.',
-  '📄 Relatório mensal em PDF, avisos de vencimento, backup semanal e integração com o Google Drive.',
+  '💡 Continue anotando ideias no campo “Sugestões de melhorias” acima — cada item vira uma versão nova.',
 ];

@@ -53,6 +53,14 @@ sw.js / manifest      instalação como app
 O número da versão fica em `js/config.js` (VERSAO) e o histórico em `js/versoes.js` — ele aparece na tela **Novidades** do app.
 A cada ajuste: atualizar os dois, e o `CACHE` do `sw.js`.
 
-## Próximas etapas
+## Integrações (v1.6)
 
-- Metas financeiras e investimentos
+- **Assistente IA** (`api/ia.js`): análise financeira e chat com Gemini, sob demanda.
+- **Telegram** (`api/telegram.js`): bot pessoal — lançar por texto/foto, PDFs para a Caixa de entrada, perguntas, /resumo /saldo /faturas /contas /relatorio.
+- **Google Drive** (`api/drive.js` + `apps-script/Codigo.gs`): Caixa de entrada → Arquivo por ano/mês, comprovantes originais, relatórios e backups.
+- **Agendador** (`api/cron.js`, 08:00 de Brasília): avisos de vencimento, relatório do mês no dia 1º e backup semanal.
+- Variáveis na Vercel: `GEMINI_API_KEY`, `APP_SECRET`, `CRON_SECRET`.
+
+## Versões anteriores
+
+- v1.4 recorrentes, regras, tags, orçamento · v1.5 patrimônio, metas, investimentos, dívidas, multimoeda, IR, comprovantes, 2 etapas

@@ -44,6 +44,24 @@
   "functions": {
     "api/ler-pdf.js": {
       "maxDuration": 60
+    },
+    "api/ia.js": {
+      "maxDuration": 60
+    },
+    "api/telegram.js": {
+      "maxDuration": 60
+    },
+    "api/drive.js": {
+      "maxDuration": 60
+    },
+    "api/cron.js": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 11 * * *"
+    }
+  ]
 }

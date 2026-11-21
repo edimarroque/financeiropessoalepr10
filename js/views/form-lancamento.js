@@ -21,7 +21,19 @@ export async function anexarComprovante(lancId, arquivo) {
   const caminho = `${S.user.id}/${lancId}.${ext}`;
   await db.enviarComprovante(caminho, blob);
   await db.atualizar('lancamentos', lancId, { comprovante: caminho, comprovante_mini: mini });
+  guardarOriginalNoDrive(lancId, arquivo).catch((e) => console.warn('drive comprovante', e.message));
   return caminho;
+}
+
+/** O original (sem reduzir) vai para o Google Drive: 01_Arquivo_por_Mes/AAAA/AAAA-MM/Recibos_Comprovantes */
+async function guardarOriginalNoDrive(lancId, arquivo) {
+  if (!S.integracao?.drive_url || arquivo.size > 3 * 1024 * 1024) return;
+  const l = S.lancs.find((x) => x.id === lancId) || {};
+  const { chamarApi, paraBase64 } = await import('../servicos/api.js');
+  const ext = (arquivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const desc = String(l.descricao || 'comprovante').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\- ]+/g, '').trim().slice(0, 40);
+  await chamarApi('drive', { acao: 'salvar', mes: (l.data_pagamento || hoje()).slice(0, 7), tipo: 'recibo', mime: arquivo.type || 'application/octet-stream',
+    nome: `${l.data_movimento || hoje()}_${desc}_${String(l.valor || '').replace('.', ',')}.${ext}`, base64: await paraBase64(arquivo), descricao: `Comprovante do lançamento ${lancId.slice(0, 8)}` });
 }
 
 export async function abrirComprovante(caminho) {

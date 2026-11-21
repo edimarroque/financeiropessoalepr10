@@ -1,6 +1,7 @@
 // Supabase simulado em memória, só para testes locais
 const tabelas = { contas: [], cartoes: [], categorias: [], lancamentos: [], lotes_importacao: [], perfis: [], sugestoes: [], recorrentes: [], regras_categoria: [],
-  metas: [], metas_movimentos: [], investimentos: [], investimentos_historico: [], dividas: [], dividas_pagamentos: [], patrimonio_mensal: [] };
+  metas: [], metas_movimentos: [], investimentos: [], investimentos_historico: [], dividas: [], dividas_pagamentos: [], patrimonio_mensal: [],
+  integracoes: [], caixa_entrada: [], ia_analises: [] };
 const arquivos = {}; window.__arquivos = arquivos;
 let fatores = []; let nivel = 'aal1'; window.__mfa = () => ({ fatores, nivel });
 window.__db = tabelas;

@@ -57,7 +57,7 @@ export function render(el) {
   el.innerHTML = `
     <div class="topo-tela">
       <div><p class="ola">${saudacao()}, <b>${esc(nomeUsuario())}</b> 👋</p><h1>${esc(rotuloPeriodo())}</h1></div>
-      <div class="topo-acoes">${periodoHTML()}<button class="btn btn-primario" data-novo>+ Lançar</button></div>
+      <div class="topo-acoes">${periodoHTML()}<a class="btn" href="#/assistente" title="Análise com IA">🤖 Analisar</a><button class="btn btn-primario" data-novo>+ Lançar</button></div>
     </div>
 
     ${semCadastro ? `<div class="aviso">Seu app está vazio. Comece em <a href="#/cadastros">Cadastros</a> → <b>“Carregar cadastros da planilha”</b>.</div>` : ''}

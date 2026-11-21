@@ -100,7 +100,7 @@ async function chamarGemini(prompt, arquivos, apiKey) {
   throw e;
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Use POST.' });
   try {
@@ -120,4 +120,4 @@ module.exports = async function handler(req, res) {
   } catch (e) {
     return res.status(e.status || 500).json({ erro: e.message || String(e) });
   }
-};
+}

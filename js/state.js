@@ -11,6 +11,7 @@ export const S = {
   lotes: [],
   recorrentes: [],
   regras: [],
+  integracao: null,
   metas: [], metasMov: [], investimentos: [], invHist: [], dividas: [], dividasPag: [], patrimonio: [],
   ano: Number(hoje().slice(0, 4)),   // período selecionado (compartilhado entre telas)
   mes: Number(hoje().slice(5, 7)),   // 1..12, ou 0 = ano todo
@@ -52,6 +53,12 @@ export async function recarregarExtras() {
     listarOpcional('dividas', 'created_at'), listarOpcional('dividas_pagamentos', 'data'), listarOpcional('patrimonio_mensal', 'mes'),
   ]);
   Object.assign(S, { recorrentes, regras, metas, metasMov, investimentos, invHist, dividas, dividasPag, patrimonio });
+  await recarregarIntegracao();
+}
+
+export async function recarregarIntegracao() {
+  const [i] = await listarOpcional('integracoes', 'updated_at');
+  S.integracao = i || null;
 }
 
 export async function recarregarTudo() {

@@ -4,10 +4,14 @@ import { S, recarregarLancamentos, recarregarLotes, cartaoPorId, contaPorId } fr
 import { hoje, fmtData, somarMeses, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
 import { sugerir } from '../categorizar.js';
+import { chamarApi, paraBase64 } from '../servicos/api.js';
 import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, lerPdfComIA, decodificar, normDesc, chavesDesc } from '../import/parsers.js';
 
 // estado da importação em andamento
 let imp = null;
+// de onde veio o arquivo escolhido (Caixa de entrada do Drive/Telegram) e o próprio arquivo (para guardar o original no Drive)
+let origemArquivo = null, arquivoAtual = null;
+let caixa = null; // itens da Caixa de entrada (carregados sob demanda)
 
 const ORIGEM_ROT = { fatura_pdf: '📄 Fatura PDF', extrato_pdf: '📄 Extrato PDF', ofx: '🏦 Extrato OFX', csv: '📑 CSV', planilha: '📊 Planilha/CSV do app' };
 
@@ -23,6 +27,7 @@ function renderInicio(el) {
   const cartoes = S.cartoes.filter((c) => c.ativo), contas = S.contas.filter((c) => c.ativo);
   el.innerHTML = `
     <div class="topo-tela"><h1>Importar</h1></div>
+    <section class="cartao-bloco" data-caixa>${caixaHTML()}</section>
     <section class="cartao-bloco">
       <h2>1. Escolha o arquivo</h2>
       <p class="dica">PDF da fatura do cartão ou do extrato da conta, extrato OFX ou CSV. Nada é gravado antes de você conferir a prévia.</p>
@@ -100,8 +105,8 @@ function renderInicio(el) {
     el.querySelector('[data-bloco=leitor]').hidden = ext !== 'pdf';
   }
 
-  arq.onchange = async () => {
-    arquivo = arq.files[0];
+  async function escolher(f, origem = null) {
+    arquivo = f; arquivoAtual = f; origemArquivo = origem;
     if (!arquivo) return;
     const nome = arquivo.name.toLowerCase();
     ext = nome.endsWith('.pdf') ? 'pdf' : nome.endsWith('.ofx') ? 'ofx' : 'csv';
@@ -115,7 +120,10 @@ function renderInicio(el) {
     if (ext === 'pdf') { const o = selDest.querySelector('option[value^="cartao:"]'); if (o) selDest.value = o.value; }
     dest.hidden = false;
     opcoesVenc(); visibilidade();
-  };
+    if (origem) dest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  arq.onchange = () => escolher(arq.files[0], null);
+  ligarCaixa(el, escolher);
   selDest.onchange = () => { opcoesVenc(); visibilidade(); };
   selVenc.onchange = atualizarPaga;
 
@@ -126,6 +134,7 @@ function renderInicio(el) {
       arquivo: arquivo.name, ext, destTipo: ext === 'csv-app' ? 'app' : q, destId: id,
       venc: selVenc.value, futuras: el.querySelector('[name=futuras]').checked, paga: el.querySelector('[name=paga]').checked,
       ia: ext === 'pdf' && el.querySelector('[name=leitor]').value === 'ia',
+      origemArquivo, arquivoObj: arquivoAtual,
     };
     if (cfg.destTipo !== 'app' && !id) return toast('Escolha o destino.', 'erro');
     await comCarregando(e.currentTarget, async () => {
@@ -456,8 +465,101 @@ async function gravar(botao, el) {
     await Promise.all([recarregarLancamentos(), recarregarLotes()]);
   });
   toast(`${sel.length} lançamento(s) importado(s).`);
-  imp = null;
+  const loteCriado = S.lotes[0];
+  guardarOriginal(cfg, sel, loteCriado).catch((e) => toast('Importado, mas não consegui guardar o arquivo no Drive: ' + e.message, 'erro'));
+  imp = null; origemArquivo = null; arquivoAtual = null;
   render(el);
+}
+
+// =====================================================================
+// Caixa de entrada (Google Drive + Telegram) e arquivo original no Drive
+// =====================================================================
+const driveOk = () => !!S.integracao?.drive_url;
+
+function caixaHTML() {
+  if (!driveOk() && !(caixa && caixa.length)) {
+    return `<h2>📥 Caixa de entrada</h2><p class="dica">Conecte o Google Drive ou o Telegram (Mais e ajustes → Integrações) para ver aqui as faturas e extratos que ainda não foram usados.</p>`;
+  }
+  if (caixa === null) return '<h2>📥 Caixa de entrada</h2><p class="dica">Carregando…</p>';
+  const nomeOrig = { drive: '📁 Drive', telegram: '✈️ Telegram' };
+  return `<div class="cab-lista"><h2>📥 Caixa de entrada <small class="dica">(ainda não usados)</small></h2><button class="btn btn-peq" data-caixa-recarregar>🔄</button></div>
+    ${caixa.length ? `<div class="lista">${caixa.map((c, i) => `<div class="item item-estatico">
+      <div class="item-icone">${/pdf/.test(c.mime) ? '📄' : /image/.test(c.mime) ? '🖼️' : '📑'}</div>
+      <div class="item-meio"><div class="item-titulo">${esc(c.nome)}</div><div class="item-sub">${nomeOrig[c.origem] || c.origem} · ${new Date(c.criado).toLocaleDateString('pt-BR')} · ${(c.tamanho / 1024).toFixed(0)} KB</div></div>
+      <div class="item-fim acoes-linha"><button class="btn btn-peq btn-primario" data-caixa-usar="${i}">Importar</button><button class="btn btn-peq" data-caixa-descartar="${i}" title="Mover para Revisar/Descartados">🗂️</button></div>
+    </div>`).join('')}</div>` : '<p class="dica">✅ Nada pendente. Coloque PDFs na pasta “00_Caixa_de_Entrada” do Drive ou envie para o bot do Telegram.</p>'}
+    ${driveOk() ? '<p class="dica mt">Depois de importar, o arquivo é movido para <b>01_Arquivo_por_Mes</b> (já usado), na pasta do mês certo.</p>' : ''}`;
+}
+
+async function carregarCaixa() {
+  const itens = [];
+  if (driveOk()) {
+    try {
+      const r = await chamarApi('drive', { acao: 'listarEntrada' });
+      for (const a of r.arquivos || []) itens.push({ origem: 'drive', id: a.id, nome: a.nome, mime: a.mime, tamanho: a.tamanho, criado: a.criado });
+    } catch (e) { toast('Drive: ' + e.message, 'erro'); }
+  }
+  try {
+    const tgItens = (await db.listar('caixa_entrada', 'created_at', false)).filter((c) => c.status === 'novo' && !c.drive_file_id);
+    for (const c of tgItens) itens.push({ origem: 'telegram', caixaId: c.id, fileId: c.telegram_file_id, nome: c.nome, mime: c.mime, tamanho: c.tamanho, criado: c.created_at });
+  } catch { /* tabela ainda não existe */ }
+  caixa = itens;
+}
+
+function ligarCaixa(el, escolher) {
+  const box = el.querySelector('[data-caixa]');
+  const redesenhar = () => { box.innerHTML = caixaHTML(); ligarCaixa(el, escolher); };
+  if (caixa === null && (driveOk() || S.integracao?.telegram_chat_id)) { carregarCaixa().then(() => { if (box.isConnected) redesenhar(); }); return; }
+  box.querySelector('[data-caixa-recarregar]')?.addEventListener('click', async (e) => { await comCarregando(e.currentTarget, carregarCaixa); redesenhar(); });
+  box.querySelectorAll('[data-caixa-usar]').forEach((b) => b.onclick = async () => {
+    const c = caixa[Number(b.dataset.caixaUsar)];
+    await comCarregando(b, async () => {
+      const r = c.origem === 'drive' ? await chamarApi('drive', { acao: 'baixar', id: c.id }) : await chamarApi('telegram?acao=arquivo', { file_id: c.fileId });
+      const bytes = Uint8Array.from(atob(r.base64), (ch) => ch.charCodeAt(0));
+      await escolher(new File([bytes], c.nome, { type: c.mime || r.mime || 'application/pdf' }), c);
+    });
+    toast(`“${c.nome}” carregado. Escolha o destino e toque em “Ler arquivo”.`);
+  });
+  box.querySelectorAll('[data-caixa-descartar]').forEach((b) => b.onclick = async () => {
+    const c = caixa[Number(b.dataset.caixaDescartar)];
+    if (!(await confirmar('Tirar da caixa de entrada', `Mover “${esc(c.nome)}” para ${c.origem === 'drive' ? '03_Revisar_ou_Descartados' : 'descartados'}?`, [{ valor: 'sim', rotulo: 'Mover' }]))) return;
+    await comCarregando(b, async () => {
+      if (c.origem === 'drive') await chamarApi('drive', { acao: 'descartar', id: c.id, motivo: 'descartado no app' });
+      else await db.atualizar('caixa_entrada', c.caixaId, { status: 'descartado' });
+    });
+    caixa = caixa.filter((x) => x !== c); redesenhar();
+  });
+}
+
+const limparNomeArq = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
+
+/** Depois de importar: o arquivo vai para 01_Arquivo_por_Mes/AAAA/AAAA-MM_Mes/(Faturas_Cartao|Extratos_Conta) com nome padrão */
+async function guardarOriginal(cfg, sel, lote) {
+  const tgItem = cfg.origemArquivo?.origem === 'telegram' ? cfg.origemArquivo : null;
+  if (tgItem) await db.atualizar('caixa_entrada', tgItem.caixaId, { status: 'importado', lote_id: lote?.id || null }).catch(() => {});
+  if (!driveOk() || cfg.destTipo === 'app' || !lote) return;
+  const ext = (cfg.arquivo.split('.').pop() || 'pdf').toLowerCase();
+  const datas = sel.map((l) => l.data_pagamento).sort();
+  let mes, tipo, nome;
+  if (cfg.destTipo === 'cartao') {
+    mes = cfg.venc.slice(0, 7); tipo = 'fatura';
+    nome = `${mes}_Fatura_${limparNomeArq(cartaoPorId(cfg.destId)?.nome)}_venc-${cfg.venc}.${ext}`;
+  } else {
+    mes = (datas[datas.length - 1] || hoje()).slice(0, 7); tipo = 'extrato';
+    nome = `${mes}_Extrato_${limparNomeArq(contaPorId(cfg.destId)?.nome)}_${datas[0]}_a_${datas[datas.length - 1]}.${ext}`;
+  }
+  const descricao = `${sel.length} lançamento(s) · lote ${lote.id.slice(0, 8)}`;
+  let r;
+  if (cfg.origemArquivo?.origem === 'drive') r = await chamarApi('drive', { acao: 'arquivar', id: cfg.origemArquivo.id, mes, tipo, nome, descricao });
+  else {
+    const f = cfg.arquivoObj;
+    if (!f || f.size > 3 * 1024 * 1024) return;
+    const base64 = await paraBase64(f);
+    r = await chamarApi('drive', { acao: 'salvar', mes, tipo, nome, mime: f.type || 'application/octet-stream', base64, descricao });
+  }
+  if (r?.id) await db.atualizar('lotes_importacao', lote.id, { drive_file_id: r.id }).catch(() => {});
+  caixa = null;
+  toast(`📁 Arquivo guardado no Drive: ${mes} / ${tipo === 'fatura' ? 'Faturas_Cartao' : 'Extratos_Conta'}.`);
 }
 
 export async function desfazer(lote, botao, aoFim) {

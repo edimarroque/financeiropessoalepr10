@@ -11,6 +11,15 @@ com passos simples e conferência dos valores com a fonte.
   `grant ... to authenticated` (projeto novo não libera sozinho) e `revoke all ... from anon`. Depois rodar `get_advisors`.
 - Cadastro de novos usuários está **desligado**; um único usuário.
 
+## Funções do servidor (/api na Vercel, ESM — package.json "type": "module")
+- `api/_comum.js` helpers (Gemini, Telegram, Drive, RPC). Arquivos com `_` não viram rota.
+- `api/ler-pdf.js` PDF→lançamentos (Gemini) · `api/ia.js` análise/chat · `api/telegram.js` bot (webhook + ações do app)
+- `api/drive.js` ponte com o Apps Script do usuário (`apps-script/Codigo.gs`) · `api/cron.js` diário 11:00 UTC (avisos, relatório dia 1, backup semanal)
+- Variáveis da Vercel: `GEMINI_API_KEY`, `APP_SECRET` (= valor em `privado.config` chave `app_secret`), `CRON_SECRET` (= APP_SECRET).
+- Bot e cron não têm login: usam funções `public.srv_*` (security definer, executáveis por anon) que exigem `p_segredo` = APP_SECRET.
+- `js/relatorio.js` (HTML do relatório) e `js/contexto-ia.js` (resumo para a IA) são puros e rodam no navegador e no servidor.
+- Testes sem internet das rotas: `node tests/api.test.mjs`.
+
 ## Arquitetura (sem build)
 HTML + CSS + JS (módulos ES) estáticos. Supabase JS via esm.sh; pdf.js servido de `vendor/pdfjs`.
 - `js/calc.js` regras puras (datas 'AAAA-MM-DD', fatura por fechamento/vencimento, parcelas, saldos, resumos)
@@ -36,12 +45,15 @@ Itens prefixados com [v1.3], [v1.4], [v1.5], [depois] indicam a versão planejad
 ```
 python3 -m http.server 8765   # servir uma cópia do site com importmap apontando supabase-js para tests/mock-supabase.js
 node tests/calc.test.mjs
-python3 tests/e2e.py && python3 tests/e2e_import.py && python3 tests/e2e_v12.py && python3 tests/e2e_sug.py
+node tests/api.test.mjs
+python3 tests/e2e.py && python3 tests/e2e_import.py && python3 tests/e2e_v12.py && python3 tests/e2e_sug.py && python3 tests/e2e_ia.py
+python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py
 ```
 Montar a cópia: copiar o repo para /tmp/site, copiar `tests/mock-supabase.js` para /tmp/site/tests/ e inserir em
 index.html, antes do CSS: `<script type="importmap">{"imports":{"https://esm.sh/@supabase/supabase-js@2":"/tests/mock-supabase.js"}}</script>`.
 Os testes usam Chrome em `/usr/bin/google-chrome` (Playwright). `tests/fixtures/migracao_planilha_2026.csv`
-não vai para o Git (dados reais): gerar com `python3 tests/migrar.py planilha.xlsm tests/fixtures/migracao_planilha_2026.csv`.
+não vai para o Git (dados reais): gerar com `python3 tests/migrar.py planilha.xlsm tests/fixtures/migracao_planilha_2026.csv`
+(ou exportar os lançamentos do banco no formato do app).
 
 ## Armazenamento (decidido em 21/11/2026)
 - **Supabase banco:** todos os dados e imagens pequenas (avatar, logos de contas/cartões como data URL).
@@ -49,10 +61,14 @@ não vai para o Git (dados reais): gerar com `python3 tests/migrar.py planilha.x
   Compactação no navegador antes do envio: foto → WebP qualidade ~0,8, lado maior 1600 px (~120–200 KB) + miniatura 320 px (~15 KB);
   original vai só para o Drive. PDF ≤ 1 MB vai como está + miniatura da 1ª página (pdf.js); PDF > 1 MB só no Drive (Supabase guarda miniatura).
   HEIC que o navegador não decodificar: avisar e mandar o original só para o Drive. Ao passar de ~800 MB, comprovantes com mais de 2 anos ficam só no Drive (manter miniatura).
-- **Google Drive do usuário (2 TB, pago):** arquivo e exportações — relatório mensal PDF, PDF original das faturas importadas,
-  backup semanal (JSON + CSV) e original de cada comprovante. Pastas: `Financeiro Pessoal/AAAA/MM - Mês/{Comprovantes,Faturas,Relatórios}`
-  e `Financeiro Pessoal/Backups`. Usar OAuth do Google com escopo `drive.file` (só arquivos criados pelo app);
-  exige configuração única no Google Cloud (Client ID) feita pelo usuário com passo a passo.
+- **Google Drive do usuário (2 TB, pago)** — decidido em 21/11/2026 (v1.6), substitui o plano de OAuth `drive.file`
+  (que não enxerga pastas criadas fora do app): **Apps Script do próprio usuário** publicado como App da Web
+  (`apps-script/Codigo.gs`, token gerado no app em Integrações). Pasta raiz `Financeiro_Pessoal/Aplicativo_Financeiro_WEB`
+  (id `1EmJ84bNWOklfiRXiVFnokuR6qnMP2RVC`):
+  `00_Caixa_de_Entrada (ainda não usados)` → importou → `01_Arquivo_por_Mes (já usados)/AAAA/AAAA-MM_Mes/{Faturas_Cartao,Extratos_Conta,Recibos_Comprovantes,Relatorios}`,
+  `02_Backups/AAAA`, `03_Revisar_ou_Descartados`, `04_Documentos_do_App` (LEIA-ME). Nome padrão: `AAAA-MM_Fatura_<cartão>_venc-AAAA-MM-DD.pdf`,
+  `AAAA-MM_Extrato_<conta>_<ini>_a_<fim>.pdf`, `AAAA-MM-DD_<descrição>_<valor>.jpg`, `Relatorio_AAAA-MM.pdf`, `Backup_AAAA-MM-DD.json/.csv`.
+- **IA:** Gemini só quando o usuário pede (Assistente, Telegram, ler PDF). O Gemini responde; o Claude constrói o app.
 
 ## Cuidados
 - Dados reais do usuário: nunca commitar extratos, faturas ou CSV de migração.
