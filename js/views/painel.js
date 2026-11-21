@@ -9,6 +9,7 @@ import { barras, selo as seloVar } from '../components/graficos.js';
 import { selo } from '../components/visual.js';
 import { abrirFormLancamento } from './form-lancamento.js';
 import { orcamentoCategorias } from '../calc.js';
+import { emReais, moedaFmt } from '../servicos/cotacao.js';
 import { modal, toast, comCarregando, numero } from '../ui.js';
 import * as db from '../db.js';
 import { recarregarCadastros, recarregarLancamentos } from '../state.js';
@@ -31,8 +32,8 @@ export function render(el) {
     const sf = saldoConta(c, S.lancs, fim);
     return { c, si, sf, dif: sf - si };
   });
-  const totIni = contas.reduce((s, x) => s + x.si, 0), totFim = contas.reduce((s, x) => s + x.sf, 0);
-  const saldoHoje = S.contas.filter((c) => c.ativo).reduce((s, c) => s + saldoConta(c, S.lancs, hoje()), 0);
+  const totIni = contas.reduce((s, x) => s + emReais(x.si, x.c.moeda), 0), totFim = contas.reduce((s, x) => s + emReais(x.sf, x.c.moeda), 0);
+  const saldoHoje = S.contas.filter((c) => c.ativo).reduce((s, c) => s + emReais(saldoConta(c, S.lancs, hoje()), c.moeda), 0);
 
   const investido = r.porGrupo.get('Metas / Investimentos') || 0;
   const base = r.receitas || r.despesas || 1;
@@ -97,7 +98,7 @@ export function render(el) {
         <div class="tabela-rolagem"><table class="tabela">
           <thead><tr><th>Conta</th><th class="num opc">Saldo inicial</th><th class="num">Saldo final</th><th class="num">Diferença</th><th class="num">Banco</th></tr></thead>
           <tbody>
-            ${contas.map(({ c, si, sf, dif }) => `<tr><td><span class="com-selo">${selo(c, 26)} ${esc(c.nome)}</span></td><td class="num opc">${brl(si)}</td><td class="num"><b>${brl(sf)}</b></td><td class="num ${dif >= 0 ? 'pos' : 'neg'}">${dif >= 0 ? '+' : ''}${brl(dif)}</td><td class="num"><button class="btn btn-peq ${c.conferido_em === hoje() ? 'conferido' : ''}" data-conferir="${c.id}" title="${c.conferido_em ? `Conferido em ${fmtData(c.conferido_em)}` : 'Comparar com o saldo do banco'}">${c.conferido_em === hoje() ? '✓<span class="txt-opc"> ok</span>' : '⚖️<span class="txt-opc"> Conferir</span>'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="dica">Nenhuma conta.</td></tr>'}
+            ${contas.map(({ c, si, sf, dif }) => `<tr><td><span class="com-selo">${selo(c, 26)} ${esc(c.nome)}${c.moeda === 'USD' ? '<span class="moeda-tag">US$</span>' : ''}</span></td><td class="num opc">${moedaFmt(si, c.moeda)}</td><td class="num"><b>${moedaFmt(sf, c.moeda)}</b>${c.moeda === 'USD' ? `<br><small>≈ ${brl(emReais(sf, 'USD'))}</small>` : ''}</td><td class="num ${dif >= 0 ? 'pos' : 'neg'}">${dif >= 0 ? '+' : ''}${moedaFmt(dif, c.moeda)}</td><td class="num"><button class="btn btn-peq ${c.conferido_em === hoje() ? 'conferido' : ''}" data-conferir="${c.id}" title="${c.conferido_em ? `Conferido em ${fmtData(c.conferido_em)}` : 'Comparar com o saldo do banco'}">${c.conferido_em === hoje() ? '✓<span class="txt-opc"> ok</span>' : '⚖️<span class="txt-opc"> Conferir</span>'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="dica">Nenhuma conta.</td></tr>'}
           </tbody>
           ${contas.length > 1 ? `<tfoot><tr><td>Total</td><td class="num opc">${brl(totIni)}</td><td class="num"><b>${brl(totFim)}</b></td><td class="num ${totFim - totIni >= 0 ? 'pos' : 'neg'}">${totFim - totIni >= 0 ? '+' : ''}${brl(totFim - totIni)}</td><td></td></tr></tfoot>` : ''}
         </table></div>
@@ -159,7 +160,7 @@ export function conferirSaldo(c, aoFim) {
   const noApp = saldoConta(c, S.lancs, hoje());
   modal(`Conferir saldo — ${c.nome}`, `
     <form class="form">
-      <div class="resumo-tabela"><div><span>Saldo no app hoje</span><b>${brl(noApp)}</b></div></div>
+      <div class="resumo-tabela"><div><span>Saldo no app hoje</span><b>${moedaFmt(noApp, c.moeda)}</b></div></div>
       ${c.conferido_em ? `<p class="dica">Última conferência: ${fmtData(c.conferido_em)} (${brl(c.conferido_saldo)}).</p>` : ''}
       <label>Saldo que aparece no banco agora <input name="real" inputmode="decimal" placeholder="0,00" required></label>
       <p class="conf-dif" data-dif></p>
@@ -173,7 +174,7 @@ export function conferirSaldo(c, aoFim) {
       const d = dif(), out = el.querySelector('[data-dif]');
       if (!Number.isFinite(d)) { out.textContent = ''; return; }
       out.className = `conf-dif ${Math.abs(d) < 0.01 ? 'pos' : 'neg'}`;
-      out.textContent = Math.abs(d) < 0.01 ? '✅ Saldo bate com o banco!' : `Diferença: ${d > 0 ? '+' : ''}${brl(d)} (${d > 0 ? 'o banco tem mais' : 'o banco tem menos'} que o app)`;
+      out.textContent = Math.abs(d) < 0.01 ? '✅ Saldo bate com o banco!' : `Diferença: ${d > 0 ? '+' : ''}${moedaFmt(d, c.moeda)} (${d > 0 ? 'o banco tem mais' : 'o banco tem menos'} que o app)`;
       el.querySelector('[data-ajustar]').disabled = Math.abs(d) < 0.01;
     };
     const registrar = async (b, ajuste) => {
@@ -182,7 +183,8 @@ export function conferirSaldo(c, aoFim) {
       const d = dif();
       await comCarregando(b, async () => {
         if (ajuste && Math.abs(d) >= 0.01) {
-          await db.inserir('lancamentos', [{ tipo: d > 0 ? 'entrada' : 'saida', valor: Math.abs(d), conta_id: c.id, data_movimento: hoje(), data_pagamento: hoje(),
+          await db.inserir('lancamentos', [{ tipo: d > 0 ? 'entrada' : 'saida', valor: emReais(Math.abs(d), c.moeda), conta_id: c.id,
+            ...(c.moeda === 'USD' ? { moeda: 'USD', valor_moeda: Math.abs(d), cotacao: emReais(1, 'USD') } : {}), data_movimento: hoje(), data_pagamento: hoje(),
             descricao: 'Ajuste de saldo (conferência com o banco)', metodo: 'Outro', situacao: d > 0 ? 'recebido' : 'pago', origem: 'ajuste', categoria_id: null }]);
           await recarregarLancamentos();
         }

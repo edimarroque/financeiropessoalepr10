@@ -5,6 +5,7 @@ import { saldoConta, fmtData, hoje, GRUPOS_DESPESA, GRUPOS_RECEITA } from '../ca
 import { esc, brl, numero, modal, toast, confirmar, comCarregando } from '../ui.js';
 import { carregarCadastrosPadrao } from '../seed.js';
 import { renderRecorrentes, renderRegras } from './cadastros-extra.js';
+import { moedaFmt, emReais, atualizarCotacao } from '../servicos/cotacao.js';
 import { camposVisual, ligarCamposVisual, selo, abrirEmojis, cartaoVisual } from '../components/visual.js';
 
 let aba = 'contas';
@@ -62,8 +63,8 @@ function renderContas(el, rerender) {
       <tbody>${S.contas.map((c) => `
         <tr class="clicavel ${c.ativo ? '' : 'inativo'}" data-linha="${c.id}">
           <td><span class="com-selo">${selo(c, 28)} ${esc(c.nome)}</span>${c.ativo ? '' : ' <small>(inativa)</small>'}</td>
-          <td class="num opc">${brl(c.saldo_inicial)}</td><td class="opc">${fmtData(c.data_saldo)}</td>
-          <td class="num"><b>${brl(saldoConta(c, S.lancs, hoje()))}</b></td>
+          <td class="num opc">${moedaFmt(c.saldo_inicial, c.moeda)}</td><td class="opc">${fmtData(c.data_saldo)}</td>
+          <td class="num"><b>${moedaFmt(saldoConta(c, S.lancs, hoje()), c.moeda)}</b>${c.moeda === 'USD' ? `<br><small>≈ ${brl(emReais(saldoConta(c, S.lancs, hoje()), 'USD'))}</small>` : ''}</td>
           <td class="num"><span class="btn-icone" aria-hidden="true">✎</span></td>
         </tr>`).join('') || '<tr><td colspan="5" class="dica">Nenhuma conta.</td></tr>'}</tbody>
     </table>`;
@@ -77,7 +78,8 @@ function formConta(c, rerender) {
       <label>Nome <input name="nome" required maxlength="80" value="${esc(c?.nome || '')}"></label>
       ${camposVisual(c, { iconePadrao: '🏦' })}
       <div class="linha2">
-        <label>Saldo inicial <input name="saldo" inputmode="decimal" value="${c ? String(c.saldo_inicial).replace('.', ',') : '0,00'}"></label>
+        <label>Moeda <select name="moeda"><option value="BRL">R$ Real</option><option value="USD" ${c?.moeda === 'USD' ? 'selected' : ''}>US$ Dólar (ex.: Nomad)</option></select></label>
+        <label>Saldo inicial <small>(na moeda da conta)</small><input name="saldo" inputmode="decimal" value="${c ? String(c.saldo_inicial).replace('.', ',') : '0,00'}"></label>
         <label>Saldo na data <input type="date" name="data" required value="${c?.data_saldo || hoje()}"></label>
       </div>
       <p class="dica">Dica: coloque o saldo que aparece no app do banco hoje e a data de hoje.</p>
@@ -92,10 +94,11 @@ function formConta(c, rerender) {
       if (!f.nome.value.trim()) return toast('Informe o nome.', 'erro');
       if (!Number.isFinite(saldo)) return toast('Saldo inválido.', 'erro');
       const dados = { nome: f.nome.value.trim(), saldo_inicial: saldo, data_saldo: f.data.value, ativo: c ? f.ativo.checked : true,
-        cor: f.cor.value, icone: f.icone.value || '🏦', imagem: f.imagem.value || null };
+        cor: f.cor.value, icone: f.icone.value || '🏦', imagem: f.imagem.value || null, moeda: f.moeda.value };
       await comCarregando(f.querySelector('.btn-primario'), async () => {
         c ? await db.atualizar('contas', c.id, dados) : await db.inserir('contas', dados);
         await recarregarCadastros();
+        if (dados.moeda === 'USD') await atualizarCotacao().catch(() => {});
       });
       toast('Conta salva.'); fechar(); rerender();
     };
@@ -176,7 +179,7 @@ function renderCategorias(el, tipo, rerender) {
       <h3>${esc(g)}</h3>
       <table class="tabela"><tbody>
         ${cats.filter((c) => c.grupo === g).map((c) => `
-          <tr class="clicavel ${c.ativo ? '' : 'inativo'}" data-linha="${c.id}"><td>${esc(c.emoji)} ${esc(c.nome)}${c.ativo ? '' : ' <small>(inativa)</small>'}</td>
+          <tr class="clicavel ${c.ativo ? '' : 'inativo'}" data-linha="${c.id}"><td>${esc(c.emoji)} ${esc(c.nome)}${c.dedutivel ? ' <span class="pill" title="Dedutível no IR">IR</span>' : ''}${c.ativo ? '' : ' <small>(inativa)</small>'}</td>
           <td class="num">${Number(c.valor_mensal) ? brl(c.valor_mensal) : '<small class="dica">sem ' + rotValor.toLowerCase() + '</small>'}</td>
           <td class="num"><span class="btn-icone" aria-hidden="true">✎</span></td></tr>`).join('') || '<tr><td class="dica">—</td></tr>'}
       </tbody></table>`).join('')}`;
@@ -196,6 +199,7 @@ function formCategoria(c, tipo, rerender) {
         <label>Grupo <select name="grupo">${grupos.map((g) => `<option ${g === c?.grupo ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
         <label>${tipo === 'despesa' ? 'Limite mensal' : 'Previsto mensal'} <input name="valor" inputmode="decimal" value="${c ? String(c.valor_mensal).replace('.', ',') : '0,00'}"></label>
       </div>
+      ${tipo === 'despesa' ? `<label class="check"><input type="checkbox" name="dedutivel" ${c?.dedutivel ? 'checked' : ''}> 🧾 Dedutível no IR (ao lançar nesta categoria, já vem marcado)</label>` : ''}
       ${c ? `<label class="check"><input type="checkbox" name="ativo" ${c.ativo ? 'checked' : ''}> Categoria ativa (inativas não aparecem para novos lançamentos)</label>` : ''}
       <div class="acoes">${c ? '<button type="button" class="btn btn-perigo" data-excluir>Excluir</button>' : ''}<span class="espaco"></span><button class="btn btn-primario">Salvar</button></div>
     </form>`, (el, fechar) => {
@@ -206,7 +210,7 @@ function formCategoria(c, tipo, rerender) {
       const v = numero(f.valor.value || '0');
       if (!f.nome.value.trim()) return toast('Informe o nome.', 'erro');
       if (!Number.isFinite(v)) return toast('Valor inválido.', 'erro');
-      const dados = { nome: f.nome.value.trim(), emoji: f.emoji.value.trim(), grupo: f.grupo.value, valor_mensal: v, tipo, ativo: c ? f.ativo.checked : true };
+      const dados = { nome: f.nome.value.trim(), emoji: f.emoji.value.trim(), grupo: f.grupo.value, valor_mensal: v, tipo, ativo: c ? f.ativo.checked : true, dedutivel: tipo === 'despesa' && !!f.dedutivel?.checked };
       await comCarregando(f.querySelector('.btn-primario'), async () => {
         c ? await db.atualizar('categorias', c.id, dados) : await db.inserir('categorias', dados);
         await recarregarCadastros();

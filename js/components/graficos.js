@@ -12,7 +12,8 @@ export function barras(rotulos, series, { altura = 220, destaque = -1, linha = n
   const max = Math.max(1, ...todos);
   const min = Math.min(0, ...todos);
   const passo = (W - pe - 6) / rotulos.length;
-  const bw = Math.max(3, (passo - 8) / series.length);
+  const bw = Math.min(42, Math.max(3, (passo - 8) / series.length));
+  const folga = Math.max(0, (passo - 8) - bw * series.length) / 2; // centraliza quando há poucas barras
   const y = (v) => pt + (H - pt - pb) * ((max - v) / (max - min || 1));
   const marcas = min < 0 ? [min, min / 2, 0, max / 2, max] : [0, max * 0.25, max * 0.5, max * 0.75, max];
   const grade = marcas.map((v) => `<line x1="${pe}" x2="${W}" y1="${y(v)}" y2="${y(v)}" class="g-grade ${v === 0 ? 'g-zero' : ''}"/>
@@ -22,7 +23,7 @@ export function barras(rotulos, series, { altura = 220, destaque = -1, linha = n
     const dica = [r, ...series.map((s) => `${s.nome}: ${brl(s.valores[i])}`), ...(linha ? [`${linha.nome}: ${brl(linha.valores[i])}`] : [])].join('\n');
     return `<g class="g-grupo ${i === destaque ? 'g-destaque' : ''}" data-dica="${esc(dica)}">
       <rect x="${x0 - 2}" y="${pt}" width="${passo - 4}" height="${H - pt - pb}" class="g-hover"/>
-      ${series.map((s, k) => { const v = s.valores[i]; const y1 = Math.min(y(v), y(0)); return `<rect x="${x0 + k * bw}" y="${y1}" width="${bw - 1}" height="${Math.abs(y(v) - y(0))}" rx="3" fill="${s.cor}"/>`; }).join('')}
+      ${series.map((s, k) => { const v = s.valores[i]; const y1 = Math.min(y(v), y(0)); return `<rect x="${x0 + folga + k * bw}" y="${y1}" width="${bw - 1}" height="${Math.abs(y(v) - y(0))}" rx="3" fill="${s.cor}"/>`; }).join('')}
       <text x="${x0 + (passo - 8) / 2}" y="${H - 8}" text-anchor="middle" class="g-rot ${i === destaque ? 'g-rot-forte' : ''}">${esc(r)}</text></g>`;
   }).join('');
   let poli = '';

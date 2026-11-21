@@ -11,6 +11,7 @@ export const S = {
   lotes: [],
   recorrentes: [],
   regras: [],
+  metas: [], metasMov: [], investimentos: [], invHist: [], dividas: [], dividasPag: [], patrimonio: [],
   ano: Number(hoje().slice(0, 4)),   // período selecionado (compartilhado entre telas)
   mes: Number(hoje().slice(5, 7)),   // 1..12, ou 0 = ano todo
   perfil: null,
@@ -44,8 +45,13 @@ export async function recarregarPerfil() {
 async function listarOpcional(t, ordem) { try { return await db.listar(t, ordem); } catch (e) { console.warn(t, e.message); return []; } }
 
 export async function recarregarExtras() {
-  const [recorrentes, regras] = await Promise.all([listarOpcional('recorrentes', 'descricao'), listarOpcional('regras_categoria', 'contem')]);
-  Object.assign(S, { recorrentes, regras });
+  const [recorrentes, regras, metas, metasMov, investimentos, invHist, dividas, dividasPag, patrimonio] = await Promise.all([
+    listarOpcional('recorrentes', 'descricao'), listarOpcional('regras_categoria', 'contem'),
+    listarOpcional('metas', 'created_at'), listarOpcional('metas_movimentos', 'data'),
+    listarOpcional('investimentos', 'nome'), listarOpcional('investimentos_historico', 'data'),
+    listarOpcional('dividas', 'created_at'), listarOpcional('dividas_pagamentos', 'data'), listarOpcional('patrimonio_mensal', 'mes'),
+  ]);
+  Object.assign(S, { recorrentes, regras, metas, metasMov, investimentos, invHist, dividas, dividasPag, patrimonio });
 }
 
 export async function recarregarTudo() {

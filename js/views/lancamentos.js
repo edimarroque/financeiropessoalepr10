@@ -129,7 +129,7 @@ export function render(el) {
           <div class="item" data-id="${l.id}" tabindex="0" role="button">
             <div class="item-icone">${esc(icone)}</div>
             <div class="item-meio">
-              <div class="item-titulo">${esc(titulo)} ${l.parcela_total ? `<span class="pill">${l.parcela_num}/${l.parcela_total}</span>` : ''}${l.recorrente_id ? ' <span class="pill" title="Recorrente">🔁</span>' : ''}${(l.tags || []).map((t) => ` <span class="tag">#${esc(t)}</span>`).join('')}</div>
+              <div class="item-titulo">${esc(titulo)} ${l.parcela_total ? `<span class="pill">${l.parcela_num}/${l.parcela_total}</span>` : ''}${l.recorrente_id ? ' <span class="pill" title="Recorrente">🔁</span>' : ''}${(l.tags || []).map((t) => ` <span class="tag">#${esc(t)}</span>`).join('')}${l.comprovante ? ' <span title="Tem comprovante">📎</span>' : ''}${l.dedutivel ? ' <span class="pill" title="Dedutível no IR">IR</span>' : ''}${l.moeda === 'USD' ? ` <span class="moeda-tag">US$ ${String(l.valor_moeda).replace('.', ',')}</span>` : ''}</div>
               <div class="item-sub">${esc(cat ? cat.nome : rotuloTipo(l))} · ${esc(origemTexto(l))}${l.data_pagamento !== l.data_movimento ? ` · paga em ${fmtData(l.data_pagamento)}` : ''}</div>
             </div>
             <div class="item-fim">

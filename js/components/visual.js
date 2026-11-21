@@ -131,3 +131,32 @@ export function reduzirImagem(arquivo, lado = 160, tipo = 'image/png', quadrado 
     img.src = url;
   });
 }
+
+/** Foto de comprovante: versão reduzida (lado maior 1600 px, WebP ~0,8 ou JPEG) + miniatura 320 px em data URL */
+export function comprimirFoto(arquivo) {
+  return new Promise((resolve, reject) => {
+    if (!arquivo.type.startsWith('image/')) return reject(new Error('Escolha uma imagem ou PDF.'));
+    if (arquivo.size > 25 * 1024 * 1024) return reject(new Error('Imagem muito grande (máx. 25 MB).'));
+    const img = new Image();
+    const url = URL.createObjectURL(arquivo);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const desenhar = (lado) => {
+        const e = Math.min(1, lado / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * e); cv.height = Math.round(img.height * e);
+        const ctx = cv.getContext('2d'); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        return cv;
+      };
+      const grande = desenhar(1600);
+      let mini = desenhar(320).toDataURL('image/webp', 0.7);
+      if (!mini.startsWith('data:image/webp')) mini = desenhar(320).toDataURL('image/jpeg', 0.7);
+      grande.toBlob((b) => {
+        if (b && b.type === 'image/webp') return resolve({ blob: b, mini, ext: 'webp' });
+        grande.toBlob((j) => (j ? resolve({ blob: j, mini, ext: 'jpg' }) : reject(new Error('Não consegui reduzir a imagem.'))), 'image/jpeg', 0.82);
+      }, 'image/webp', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui abrir essa imagem (formato HEIC? tire um print ou exporte como JPG).')); };
+    img.src = url;
+  });
+}

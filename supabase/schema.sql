@@ -299,3 +299,191 @@ create index if not exists regras_cat_idx on public.regras_categoria (categoria_
 create index if not exists rec_cat_idx on public.recorrentes (categoria_id);
 create index if not exists rec_conta_idx on public.recorrentes (conta_id);
 create index if not exists rec_cartao_idx on public.recorrentes (cartao_id);
+
+-- =====================================================================
+-- v1.5.0 — metas, investimentos, dívidas, patrimônio, multimoeda, IR, comprovantes, 2 etapas
+-- =====================================================================
+create table if not exists public.metas (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  nome         text not null check (length(nome) between 1 and 100),
+  emoji        text not null default '🎯',
+  cor          text not null default '#4f46e5',
+  valor_alvo   numeric(14,2) not null check (valor_alvo > 0),
+  valor_inicial numeric(14,2) not null default 0,
+  prazo        date,
+  concluida    boolean not null default false,
+  created_at   timestamptz not null default now()
+);
+create table if not exists public.metas_movimentos (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  meta_id       uuid not null references public.metas(id) on delete cascade,
+  data          date not null default current_date,
+  valor         numeric(14,2) not null check (valor <> 0),
+  descricao     text not null default '',
+  lancamento_id uuid references public.lancamentos(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create table if not exists public.investimentos (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  nome           text not null check (length(nome) between 1 and 100),
+  classe         text not null check (classe in ('renda_fixa','renda_variavel','cripto','previdencia','outro')),
+  subtipo        text not null default '',
+  instituicao    text not null default '',
+  moeda          text not null default 'BRL' check (moeda in ('BRL','USD')),
+  valor_aplicado numeric(14,2) not null default 0,
+  valor_atual    numeric(14,2) not null default 0,
+  atualizado_em  date not null default current_date,
+  vencimento     date,
+  rentabilidade  text not null default '',
+  liquidez       text not null default '',
+  ativo          boolean not null default true,
+  created_at     timestamptz not null default now()
+);
+create table if not exists public.investimentos_historico (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  investimento_id uuid not null references public.investimentos(id) on delete cascade,
+  data           date not null default current_date,
+  valor_atual    numeric(14,2) not null,
+  aporte         numeric(14,2) not null default 0,
+  created_at     timestamptz not null default now()
+);
+create table if not exists public.dividas (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  nome           text not null check (length(nome) between 1 and 100),
+  direcao        text not null default 'devo' check (direcao in ('devo','me_devem')),
+  tipo           text not null default 'emprestimo',
+  pessoa         text not null default '',
+  valor_original numeric(14,2) not null default 0,
+  saldo          numeric(14,2) not null default 0,
+  taxa_mensal    numeric(7,4),
+  parcela_valor  numeric(14,2),
+  parcelas_total smallint,
+  parcelas_pagas smallint not null default 0,
+  dia_vencimento smallint check (dia_vencimento between 1 and 31),
+  inicio         date not null default current_date,
+  ativo          boolean not null default true,
+  obs            text not null default '',
+  created_at     timestamptz not null default now()
+);
+create table if not exists public.dividas_pagamentos (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  divida_id     uuid not null references public.dividas(id) on delete cascade,
+  data          date not null default current_date,
+  valor         numeric(14,2) not null check (valor > 0),
+  juros         numeric(14,2) not null default 0,
+  lancamento_id uuid references public.lancamentos(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create table if not exists public.patrimonio_mensal (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  mes          text not null check (mes ~ '^[0-9]{4}-[0-9]{2}$'),
+  contas       numeric(14,2) not null default 0,
+  investimentos numeric(14,2) not null default 0,
+  a_receber    numeric(14,2) not null default 0,
+  dividas      numeric(14,2) not null default 0,
+  total        numeric(14,2) not null default 0,
+  updated_at   timestamptz not null default now(),
+  unique (user_id, mes)
+);
+
+alter table public.contas add column if not exists moeda text not null default 'BRL';
+alter table public.contas drop constraint if exists contas_moeda_ok;
+alter table public.contas add constraint contas_moeda_ok check (moeda in ('BRL','USD'));
+alter table public.lancamentos add column if not exists moeda text not null default 'BRL';
+alter table public.lancamentos add column if not exists valor_moeda numeric(14,2);
+alter table public.lancamentos add column if not exists cotacao numeric(12,6);
+alter table public.lancamentos add column if not exists dedutivel boolean not null default false;
+alter table public.lancamentos add column if not exists comprovante text;          -- caminho no Storage
+alter table public.lancamentos add column if not exists comprovante_mini text;     -- miniatura (data URL)
+alter table public.lancamentos drop constraint if exists lanc_mini_tamanho;
+alter table public.lancamentos add constraint lanc_mini_tamanho check (comprovante_mini is null or length(comprovante_mini) <= 60000);
+alter table public.categorias add column if not exists dedutivel boolean not null default false;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['metas','metas_movimentos','investimentos','investimentos_historico','dividas','dividas_pagamentos','patrimonio_mensal'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "dono_select" on public.%I', t);
+    execute format('drop policy if exists "dono_insert" on public.%I', t);
+    execute format('drop policy if exists "dono_update" on public.%I', t);
+    execute format('drop policy if exists "dono_delete" on public.%I', t);
+    execute format('create policy "dono_select" on public.%I for select using (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_insert" on public.%I for insert with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_update" on public.%I for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
+    execute format('create policy "dono_delete" on public.%I for delete using (user_id = (select auth.uid()))', t);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
+  end loop;
+end $$;
+create index if not exists metas_user_idx on public.metas (user_id);
+create index if not exists metasmov_meta_idx on public.metas_movimentos (meta_id);
+create index if not exists metasmov_user_idx on public.metas_movimentos (user_id);
+create index if not exists metasmov_lanc_idx on public.metas_movimentos (lancamento_id);
+create index if not exists inv_user_idx on public.investimentos (user_id);
+create index if not exists invh_inv_idx on public.investimentos_historico (investimento_id);
+create index if not exists invh_user_idx on public.investimentos_historico (user_id);
+create index if not exists div_user_idx on public.dividas (user_id);
+create index if not exists divp_div_idx on public.dividas_pagamentos (divida_id);
+create index if not exists divp_user_idx on public.dividas_pagamentos (user_id);
+create index if not exists divp_lanc_idx on public.dividas_pagamentos (lancamento_id);
+
+-- Comprovantes: bucket privado, cada usuário só mexe na própria pasta (<user_id>/arquivo)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('comprovantes', 'comprovantes', false, 2097152, array['image/webp','image/jpeg','image/png','application/pdf'])
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+drop policy if exists "comprovantes_dono_select" on storage.objects;
+drop policy if exists "comprovantes_dono_insert" on storage.objects;
+drop policy if exists "comprovantes_dono_update" on storage.objects;
+drop policy if exists "comprovantes_dono_delete" on storage.objects;
+create policy "comprovantes_dono_select" on storage.objects for select to authenticated using (bucket_id = 'comprovantes' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "comprovantes_dono_insert" on storage.objects for insert to authenticated with check (bucket_id = 'comprovantes' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "comprovantes_dono_update" on storage.objects for update to authenticated using (bucket_id = 'comprovantes' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create policy "comprovantes_dono_delete" on storage.objects for delete to authenticated using (bucket_id = 'comprovantes' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- Verificação em 2 etapas: quem ativou o app autenticador só acessa os dados depois de digitar o código (aal2)
+create or replace function public.mfa_ok() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select auth.jwt() ->> 'aal'), 'aal1') = 'aal2'
+      or not exists (select 1 from auth.mfa_factors f where f.user_id = (select auth.uid()) and f.status = 'verified');
+$$;
+revoke execute on function public.mfa_ok() from public, anon;
+grant execute on function public.mfa_ok() to authenticated;
+do $$
+declare t text;
+begin
+  foreach t in array array['contas','cartoes','categorias','lotes_importacao','lancamentos','perfis','sugestoes','recorrentes','regras_categoria',
+                           'metas','metas_movimentos','investimentos','investimentos_historico','dividas','dividas_pagamentos','patrimonio_mensal','historico'] loop
+    execute format('drop policy if exists "exige_2_etapas" on public.%I', t);
+    execute format('create policy "exige_2_etapas" on public.%I as restrictive for all to authenticated using ((select public.mfa_ok())) with check ((select public.mfa_ok()))', t);
+  end loop;
+end $$;
+
+-- v1.5.0 (ajuste): função da verificação em 2 etapas fica num schema que não é exposto pela API
+create schema if not exists privado;
+revoke all on schema privado from public, anon;
+grant usage on schema privado to authenticated;
+create or replace function privado.mfa_ok() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select auth.jwt() ->> 'aal'), 'aal1') = 'aal2'
+      or not exists (select 1 from auth.mfa_factors f where f.user_id = (select auth.uid()) and f.status = 'verified');
+$$;
+revoke execute on function privado.mfa_ok() from public, anon;
+grant execute on function privado.mfa_ok() to authenticated;
+do $$
+declare t text;
+begin
+  foreach t in array array['contas','cartoes','categorias','lotes_importacao','lancamentos','perfis','sugestoes','recorrentes','regras_categoria',
+                           'metas','metas_movimentos','investimentos','investimentos_historico','dividas','dividas_pagamentos','patrimonio_mensal','historico'] loop
+    execute format('drop policy if exists "exige_2_etapas" on public.%I', t);
+    execute format('create policy "exige_2_etapas" on public.%I as restrictive for all to authenticated using ((select privado.mfa_ok())) with check ((select privado.mfa_ok()))', t);
+  end loop;
+end $$;
+drop function if exists public.mfa_ok();

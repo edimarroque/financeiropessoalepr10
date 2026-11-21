@@ -50,3 +50,24 @@ console.log('todos os testes de cálculo passaram');
   assert.equal(o.length, 1); assert.equal(o[0].nivel, 'atencao');
 }
 console.log('v1.4 calc OK');
+// v1.5 — metas, dívidas, projeção, conta em dólar
+{
+  const m = { id: 'm', valor_alvo: 1200, valor_inicial: 200, prazo: '2027-05-21' };
+  const p = c.progressoMeta(m, [{ meta_id: 'm', valor: 100 }, { meta_id: 'x', valor: 999 }], '2026-11-21');
+  assert.equal(p.atual, 300); assert.equal(p.falta, 900); assert.equal(p.mesesRestantes, 6); assert.equal(p.mensalNecessario, 150);
+  assert.equal(c.progressoMeta({ ...m, prazo: '2026-10-01' }, [], '2026-11-21').atrasada, true);
+  assert.equal(c.mesesParaQuitar(10000, 2, 500).meses, 26);
+  assert.equal(c.mesesParaQuitar(10000, 5, 400), null);
+  assert.equal(c.mesesParaQuitar(1000, 0, 250).meses, 4);
+  const cartao = { id: 'k', dia_fechamento: 5, dia_vencimento: 15 };
+  const pr = c.projecaoSaldo({ saldoHoje: 1000, ref: '2026-11-21', meses: 3, cartoes: [cartao], parcelasDividas: 100, lancs: [
+    { tipo: 'entrada', situacao: 'pendente', valor: 3000, data_pagamento: '2026-12-05' },
+    { tipo: 'saida', situacao: 'pendente', valor: 500, data_pagamento: '2026-11-10', conta_id: 'c' },
+    { tipo: 'saida', situacao: 'pendente', valor: 200, data_pagamento: '2026-12-15', cartao_id: 'k' },
+    { tipo: 'saida', situacao: 'pago', valor: 999, data_pagamento: '2026-12-15', conta_id: 'c' },
+  ], recorrentes: [{ id: 'r', ativo: true, inicio: '2026-01-01', dia: 10, valor: 50, tipo: 'saida', conta_id: 'c', ultimo_mes: '2026-12' }] });
+  assert.deepEqual(pr.map((x) => x.fim), [400, 3100, 2950]);
+  const usdC = { id: 'u', saldo_inicial: 100, data_saldo: '2026-11-01', moeda: 'USD' };
+  assert.equal(c.saldoConta(usdC, [{ tipo: 'saida', conta_id: 'u', valor: 55, valor_moeda: 10, situacao: 'pago', data_pagamento: '2026-11-02' }]), 90);
+}
+console.log('v1.5 calc OK');

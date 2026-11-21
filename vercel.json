@@ -27,7 +27,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://esm.sh; worker-src 'self' blob:; connect-src 'self' https://sqkvmpuhtsjeabmjdvgc.supabase.co wss://sqkvmpuhtsjeabmjdvgc.supabase.co https://esm.sh; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' https://esm.sh; worker-src 'self' blob:; connect-src 'self' https://sqkvmpuhtsjeabmjdvgc.supabase.co wss://sqkvmpuhtsjeabmjdvgc.supabase.co https://esm.sh https://economia.awesomeapi.com.br; img-src 'self' data: blob: https://sqkvmpuhtsjeabmjdvgc.supabase.co; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-src 'self' blob: https://sqkvmpuhtsjeabmjdvgc.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         }
       ]
     },

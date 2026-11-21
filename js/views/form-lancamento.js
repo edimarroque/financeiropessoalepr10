@@ -7,6 +7,27 @@ import { sugerir } from '../categorizar.js';
 import { recarregarExtras } from '../state.js';
 import { orcamentoCategorias, intervalo, partes } from '../calc.js';
 import { sincronizarRecorrentes } from '../servicos/recorrentes.js';
+import { cotacaoUSD, usd } from '../servicos/cotacao.js';
+import { comprimirFoto } from '../components/visual.js';
+import { contaPorId } from '../state.js';
+
+/** Envia o comprovante (foto reduzida ou PDF até 1 MB) e grava o caminho + miniatura no lançamento */
+export async function anexarComprovante(lancId, arquivo) {
+  let blob, mini = null, ext;
+  if (arquivo.type === 'application/pdf') {
+    if (arquivo.size > 1024 * 1024) throw new Error('PDF maior que 1 MB: guarde no Google Drive (Recibos_Comprovantes) e anexe uma foto/print aqui.');
+    blob = arquivo; ext = 'pdf';
+  } else ({ blob, mini, ext } = await comprimirFoto(arquivo));
+  const caminho = `${S.user.id}/${lancId}.${ext}`;
+  await db.enviarComprovante(caminho, blob);
+  await db.atualizar('lancamentos', lancId, { comprovante: caminho, comprovante_mini: mini });
+  return caminho;
+}
+
+export async function abrirComprovante(caminho) {
+  try { window.open(await db.linkComprovante(caminho), '_blank', 'noopener'); }
+  catch (e) { toast(e.message, 'erro'); }
+}
 
 /** "#viagem, reforma #Casa" → ['viagem','reforma','casa'] */
 export function lerTags(txt) {
@@ -84,6 +105,11 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
         </label>
       </div>
 
+      <div class="linha2" data-bloco="usd" hidden>
+        <label>Valor em US$ <input name="valor_usd" inputmode="decimal" placeholder="0,00" value="${ed?.valor_moeda != null ? String(ed.valor_moeda).replace('.', ',') : ''}"></label>
+        <label>Cotação (R$ por US$) <input name="cotacao" inputmode="decimal" value="${String(ed?.cotacao || cotacaoUSD()).replace('.', ',')}"></label>
+      </div>
+
       <label>Descrição
         <input name="descricao" maxlength="200" placeholder="Ex.: Supermercado BH" value="${esc(ed ? ed.descricao : '')}">
       </label>
@@ -126,6 +152,13 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       <label>Tags <small>(opcional — ex.: #viagem #reforma)</small>
         <input name="tags" maxlength="200" placeholder="#viagem #reforma" value="${esc((ed?.tags || []).map((t) => '#' + t).join(' '))}">
       </label>
+      <label class="check" data-bloco="dedutivel"><input type="checkbox" name="dedutivel" ${ed?.dedutivel ? 'checked' : ''}> 🧾 Dedutível no Imposto de Renda (saúde, educação, previdência…)</label>
+      <div class="comp-mini" data-bloco="comprovante">
+        ${ed?.comprovante ? `${ed.comprovante_mini ? `<img src="${esc(ed.comprovante_mini)}" alt="Comprovante" data-ver-comp>` : '<button type="button" class="btn btn-peq" data-ver-comp>📄 Ver comprovante</button>'}
+          <button type="button" class="btn-link" data-tirar-comp>remover</button>` : ''}
+        <label class="btn btn-peq vc-upload">📎 ${ed?.comprovante ? 'Trocar' : 'Anexar'} comprovante<input type="file" accept="image/*,application/pdf" name="comprovante"></label>
+        <small data-comp-nome></small>
+      </div>
       ${!ed ? `<label class="check" data-bloco="recorrente"><input type="checkbox" name="recorrente"> 🔁 Repetir todo mês (aluguel, assinatura, salário…) — gera como pendente nos próximos meses</label>` : ''}
       ${ed && ed.recorrente_id ? `<p class="dica">🔁 Gerado por uma recorrência. Para mudar os próximos meses, edite em Cadastros → Recorrentes.</p>` : ''}
       ${ed && ed.lote_id ? `<p class="dica">📥 Veio de uma importação. <button type="button" class="btn-link" data-remover-lote>Remover a importação inteira</button></p>` : ''}
@@ -168,6 +201,12 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       const cartao = ehCartao();
       el.querySelector('[data-bloco=metodo]').hidden = transf || cartao;
       el.querySelector('[data-bloco=parcelas]').hidden = transf || !cartao || t !== 'saida';
+      // conta em dólar: mostra valor em US$ e cotação (o valor em reais é calculado)
+      const [qo, ido] = (origem() || ':').split(':');
+      const usdNormal = !transf && qo === 'conta' && contaPorId(ido)?.moeda === 'USD';
+      const usdTransf = transf && [f.conta_origem.value, f.conta_destino.value].some((id) => contaPorId(id)?.moeda === 'USD');
+      el.querySelector('[data-bloco=usd]').hidden = !(usdNormal || usdTransf);
+      el.querySelector('[data-bloco=dedutivel]').hidden = t !== 'saida';
       const br = el.querySelector('[data-bloco=recorrente]');
       if (br) br.hidden = transf || (Number(f.parcelas.value) || 1) > 1;
       // no cartão a data de pagamento é o vencimento da fatura (calculado), exceto na edição
@@ -191,6 +230,27 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       f.categoria_id.innerHTML = opcoesCategorias(tipo(), null);
       f.origem.innerHTML = opcoesOrigem(tipo(), origem());
       preencherMetodo(); atualizar();
+    });
+    const calcBRL = () => {
+      const u = numero(f.valor_usd.value), c = numero(f.cotacao.value);
+      if (u > 0 && c > 0) { f.valor.value = String(arred(u * c)).replace('.', ','); atualizar(); }
+    };
+    f.valor_usd.oninput = calcBRL; f.cotacao.oninput = calcBRL;
+    f.conta_origem.addEventListener('change', atualizar); f.conta_destino.addEventListener('change', atualizar);
+    f.categoria_id.addEventListener('change', () => {
+      const cat = S.categorias.find((c) => c.id === f.categoria_id.value);
+      if (cat?.dedutivel && !ed) f.dedutivel.checked = true;
+    });
+    f.comprovante.onchange = () => { el.querySelector('[data-comp-nome]').textContent = f.comprovante.files[0]?.name || ''; };
+    el.querySelector('[data-ver-comp]')?.addEventListener('click', () => abrirComprovante(ed.comprovante));
+    el.querySelector('[data-tirar-comp]')?.addEventListener('click', async (e) => {
+      if (!(await confirmar('Remover comprovante', 'Apagar o comprovante anexado?', [{ valor: 'sim', rotulo: 'Remover', classe: 'btn-perigo' }]))) return;
+      await comCarregando(e.currentTarget, async () => {
+        await db.apagarComprovante(ed.comprovante).catch(() => {});
+        await db.atualizar('lancamentos', ed.id, { comprovante: null, comprovante_mini: null });
+        ed.comprovante = null; await recarregarLancamentos();
+      });
+      el.querySelector('[data-bloco=comprovante]').innerHTML = '<small>Comprovante removido.</small>';
     });
     let catEscolhida = !!ed;
     f.categoria_id.addEventListener('change', () => { catEscolhida = true; });
@@ -246,7 +306,15 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
       const valor = numero(f.valor.value);
       if (!(valor > 0)) return toast('Informe um valor maior que zero.', 'erro');
       if (!f.data_movimento.value) return toast('Informe a data.', 'erro');
-      const base = { descricao: f.descricao.value.trim(), data_movimento: f.data_movimento.value, tags: lerTags(f.tags.value) };
+      const base = { descricao: f.descricao.value.trim(), data_movimento: f.data_movimento.value, tags: lerTags(f.tags.value),
+        dedutivel: t === 'saida' && f.dedutivel.checked };
+      const blocoUsd = !el.querySelector('[data-bloco=usd]').hidden;
+      if (blocoUsd) {
+        const u = numero(f.valor_usd.value), c = numero(f.cotacao.value);
+        if (!(u > 0) || !(c > 0)) return toast('Informe o valor em US$ e a cotação.', 'erro');
+        Object.assign(base, { moeda: 'USD', valor_moeda: arred(u), cotacao: c });
+      } else Object.assign(base, { moeda: 'BRL', valor_moeda: null, cotacao: null });
+      const arquivoComp = f.comprovante.files[0] || null;
 
       let linhas = [];
       if (t === 'transferencia') {
@@ -295,8 +363,10 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
             if (gerado) { await db.atualizar('lancamentos', gerado.id, { situacao: L.situacao, tags: L.tags }); }
           }
         } else {
-          await db.inserir('lancamentos', linhas);
+          const gravados = await db.inserir('lancamentos', linhas);
+          if (arquivoComp && gravados[0]) await anexarComprovante(gravados[0].id, arquivoComp).catch((er) => toast('Lançamento salvo, mas o comprovante falhou: ' + er.message, 'erro'));
         }
+        if (ed && arquivoComp) await anexarComprovante(ed.id, arquivoComp).catch((er) => toast('Lançamento salvo, mas o comprovante falhou: ' + er.message, 'erro'));
         await recarregarLancamentos();
       });
       if (t === 'saida') avisarOrcamento(linhas[0].categoria_id, linhas[0].data_pagamento);

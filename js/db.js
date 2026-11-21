@@ -16,6 +16,7 @@ function traduzErro(error) {
   if (/duplicate key/i.test(m)) return 'Já existe um registro com esse nome.';
   if (/violates foreign key/i.test(m)) return 'Este item está em uso e não pode ser removido.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Sem conexão com o servidor. Verifique a internet.';
+  if (/Invalid TOTP|invalid.*code|otp/i.test(m)) return 'Código inválido ou expirado. Confira o horário do celular e tente de novo.';
   return m;
 }
 
@@ -90,4 +91,50 @@ export async function excluirVarios(tabela, ids) {
 
 export async function atualizarOnde(tabela, coluna, valor, patch) {
   return ok(await sb.from(tabela).update(patch).eq(coluna, valor));
+}
+
+// ---------------- Comprovantes (Supabase Storage, bucket privado) ----------------
+export async function enviarComprovante(caminho, blob) {
+  return ok(await sb.storage.from('comprovantes').upload(caminho, blob, { upsert: true, contentType: blob.type }));
+}
+export async function linkComprovante(caminho, segundos = 600) {
+  const { data, error } = await sb.storage.from('comprovantes').createSignedUrl(caminho, segundos);
+  if (error) throw new Error(traduzErro(error));
+  return data.signedUrl;
+}
+export async function apagarComprovante(caminho) {
+  return ok(await sb.storage.from('comprovantes').remove([caminho]));
+}
+
+// ---------------- Verificação em 2 etapas (app autenticador / TOTP) ----------------
+export async function nivelMFA() {
+  const { data, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw new Error(traduzErro(error));
+  return data; // { currentLevel, nextLevel }
+}
+export async function fatoresMFA() {
+  const { data, error } = await sb.auth.mfa.listFactors();
+  if (error) throw new Error(traduzErro(error));
+  return (data.totp || []);
+}
+export async function cadastrarMFA() {
+  // remove tentativas antigas não confirmadas
+  const { data: lista } = await sb.auth.mfa.listFactors();
+  for (const f of (lista?.all || []).filter((x) => x.status !== 'verified')) await sb.auth.mfa.unenroll({ factorId: f.id });
+  return ok(await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Financeiro ' + new Date().toISOString().slice(0, 10) }));
+}
+export async function verificarMFA(factorId, codigo) {
+  return ok(await sb.auth.mfa.challengeAndVerify({ factorId, code: String(codigo).replace(/\D/g, '') }));
+}
+export async function removerMFA(factorId) {
+  return ok(await sb.auth.mfa.unenroll({ factorId }));
+}
+export async function tokenAtual() {
+  const { data } = await sb.auth.getSession();
+  return data.session?.access_token || '';
+}
+
+export async function salvarVarios(tabela, linhas, conflito) {
+  if (!linhas.length) return [];
+  return ok(await sb.from(tabela).upsert(linhas, { onConflict: conflito }).select());
 }

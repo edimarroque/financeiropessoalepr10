@@ -11,6 +11,9 @@ import * as importar from './views/importar.js';
 import * as dashboards from './views/dashboards.js';
 import * as novidades from './views/novidades.js';
 import * as ajuda from './views/ajuda.js';
+import * as patrimonio from './views/patrimonio.js';
+import { registrarPatrimonio } from './servicos/patrimonio.js';
+import { atualizarCotacao } from './servicos/cotacao.js';
 import { abrirFormLancamento } from './views/form-lancamento.js';
 import { avatarHTML, abrirPerfil } from './views/mais.js';
 import { nomeUsuario } from './state.js';
@@ -26,6 +29,7 @@ const ROTAS = {
   lancamentos: { titulo: 'Lançamentos', icone: '📋', view: lancamentos, grupo: 'principal' },
   cartoes: { titulo: 'Cartões', icone: '💳', view: cartoes, grupo: 'principal' },
   dashboards: { titulo: 'Dashboards', icone: '📊', view: dashboards, grupo: 'principal' },
+  patrimonio: { titulo: 'Patrimônio', icone: '💎', view: patrimonio, grupo: 'principal' },
   importar: { titulo: 'Importar', icone: '📥', view: importar, grupo: 'gestao' },
   cadastros: { titulo: 'Cadastros', icone: '⚙️', view: cadastros, grupo: 'gestao' },
   ajuda: { titulo: 'Como usar', icone: '❓', view: ajuda, grupo: 'ajuda' },
@@ -73,7 +77,7 @@ window.addEventListener('perfil-mudou', () => { if (S.user) { montarCasca(); des
 function desenhar() {
   const r = rotaAtual();
   document.querySelectorAll('[data-rota]').forEach((a) => a.classList.toggle('ativa', a.dataset.rota === r ||
-    (a.dataset.rota === 'mais' && a.closest('.inferior') && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais'].includes(r))));
+    (a.dataset.rota === 'mais' && a.closest('.inferior') && ['importar', 'cadastros', 'ajuda', 'novidades', 'mais', 'patrimonio'].includes(r))));
   if (r === 'novidades') document.querySelector('.ponto-novo')?.remove();
   const fab = document.querySelector('.fab');
   if (fab) fab.hidden = !COM_FAB.includes(r);
@@ -123,6 +127,32 @@ function novaSenha() {
   });
 }
 
+function telaCodigoMFA() {
+  return new Promise((resolve) => {
+    raiz.innerHTML = `
+      <div class="login">
+        <form class="login-caixa" id="f-mfa">
+          <div class="marca grande"><span class="logo">R$</span><div><b>Verificação em 2 etapas</b><small>Digite o código de 6 dígitos do app autenticador</small></div></div>
+          <label>Código <input name="codigo" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus placeholder="000000"></label>
+          <button class="btn btn-primario largo" type="submit">Confirmar</button>
+          <button class="btn-link" type="button" data-sair>Sair</button>
+        </form>
+      </div>`;
+    const f = document.getElementById('f-mfa');
+    f.codigo.focus();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const [fator] = await db.fatoresMFA();
+        if (!fator) return resolve(true);
+        await comCarregando(f.querySelector('.btn-primario'), () => db.verificarMFA(fator.id, f.codigo.value));
+        resolve(true);
+      } catch { f.codigo.select(); }
+    };
+    f.querySelector('[data-sair]').onclick = async () => { resolve(false); await sairAgora(); };
+  });
+}
+
 function telaCarregando(txt = 'Carregando…') {
   raiz.innerHTML = `<div class="login"><div class="carregando"><span class="giro"></span> ${txt}</div></div>`;
 }
@@ -143,9 +173,18 @@ async function aoLogar(session, inicial = false) {
   S.user = session.user;
   telaCarregando('Carregando seus dados…');
   try {
+    // verificação em 2 etapas: se ativada, pede o código do app autenticador antes de abrir os dados
+    const nivel = await db.nivelMFA().catch(() => null);
+    if (nivel && nivel.nextLevel === 'aal2' && nivel.currentLevel !== 'aal2') {
+      const passou = await telaCodigoMFA();
+      if (!passou) return;
+      telaCarregando('Carregando seus dados…');
+    }
     await recarregarTudo();
     carregarDoPerfil();
     await sincronizarRecorrentes().catch((e) => console.warn(e));
+    if (S.contas.some((c) => c.moeda === 'USD') || S.investimentos.some((i) => i.moeda === 'USD')) await atualizarCotacao().catch(() => {});
+    registrarPatrimonio().catch((e) => console.warn(e));
     if (!iniciado || S.user?.id !== session.user.id) return; // saiu enquanto carregava
     montarCasca();
     desenhar();

@@ -114,7 +114,8 @@ export function saldoConta(conta, lancs, ate = null) {
     if (!realizado(l)) continue;
     if (l.data_pagamento < conta.data_saldo) continue;
     if (ate && l.data_pagamento > ate) continue;
-    const v = Number(l.valor);
+    // conta em dólar: usa o valor na moeda da conta (o campo valor guarda o equivalente em reais)
+    const v = conta.moeda && conta.moeda !== 'BRL' && l.valor_moeda != null ? Number(l.valor_moeda) : Number(l.valor);
     if (l.tipo === 'entrada' && l.conta_id === conta.id && !l.cartao_id) s += v;
     else if (l.tipo === 'saida' && l.conta_id === conta.id && !l.cartao_id) s -= v;
     else if (l.tipo === 'pagamento_fatura' && l.conta_id === conta.id) s -= v;
@@ -360,4 +361,75 @@ export function orcamentoCategorias(lancs, categorias, ini, fim, meses = 1) {
     out.push({ categoria: c, limite, gasto, p, nivel: p >= 1 ? 'estourou' : p >= 0.8 ? 'atencao' : 'ok' });
   }
   return out.sort((a, b) => b.p - a.p);
+}
+
+// ---------------------------------------------------------------------
+// v1.5 — metas, dívidas, patrimônio e projeção de saldo
+// ---------------------------------------------------------------------
+/** Progresso de uma meta: { atual, falta, p, mensalNecessario, mesesRestantes } */
+export function progressoMeta(meta, movimentos, ref = hoje()) {
+  const atual = arred(Number(meta.valor_inicial || 0) + movimentos.filter((m) => m.meta_id === meta.id).reduce((s, m) => s + Number(m.valor), 0));
+  const alvo = Number(meta.valor_alvo);
+  const falta = arred(Math.max(0, alvo - atual));
+  let mesesRestantes = null, mensalNecessario = null;
+  if (meta.prazo) {
+    const a = partes(ref), b = partes(meta.prazo);
+    mesesRestantes = Math.max(0, (b.y - a.y) * 12 + (b.m - a.m) + (b.d >= a.d ? 0 : -1)) || (meta.prazo >= ref ? 1 : 0);
+    mensalNecessario = mesesRestantes > 0 ? arred(falta / mesesRestantes) : falta;
+  }
+  return { atual, alvo, falta, p: alvo ? Math.min(1, atual / alvo) : 0, mesesRestantes, mensalNecessario, atrasada: !!meta.prazo && meta.prazo < ref && falta > 0 };
+}
+
+/** Quantos meses faltam para quitar (com juros mensais) pagando `parcela` por mês. null se nunca quita */
+export function mesesParaQuitar(saldo, taxaMensal, parcela) {
+  let s = Number(saldo), n = 0;
+  const t = Number(taxaMensal || 0) / 100, p = Number(parcela);
+  if (!(s > 0)) return 0;
+  if (!(p > 0) || p <= s * t) return null;
+  let juros = 0;
+  while (s > 0.005 && n < 600) { const j = s * t; juros += j; s = s + j - p; n++; }
+  return { meses: n, jurosTotal: arred(juros) };
+}
+
+/**
+ * Projeção do saldo das contas mês a mês: parte do saldo de hoje e aplica pendências (entradas e saídas em conta),
+ * faturas de cartão a vencer (itens pendentes) e recorrências ainda não geradas.
+ */
+export function projecaoSaldo({ saldoHoje, lancs, recorrentes = [], cartoes = [], meses = 6, ref = hoje(), parcelasDividas = 0 }) {
+  const mesAtual = mesDe(ref);
+  const fimHorizonte = somarMesRef(mesAtual, meses - 1);
+  const linhas = [];
+  for (let i = 0; i < meses; i++) linhas.push({ ref: somarMesRef(mesAtual, i), entradas: 0, saidas: 0, faturas: 0, recorrentes: 0, dividas: parcelasDividas });
+  const idx = new Map(linhas.map((x, i) => [x.ref, i]));
+  for (const l of lancs) {
+    if (l.situacao !== 'pendente') continue;
+    let r = mesDe(l.data_pagamento);
+    if (l.data_pagamento < ref) r = mesAtual; // atrasados contam agora
+    if (!idx.has(r)) continue;
+    const x = linhas[idx.get(r)], v = Number(l.valor);
+    if (l.tipo === 'entrada' && !l.cartao_id) x.entradas += v;
+    else if (l.tipo === 'saida' && l.cartao_id) x.faturas += v;
+    else if (l.tipo === 'entrada' && l.cartao_id) x.faturas -= v;
+    else if (l.tipo === 'saida') x.saidas += v;
+  }
+  // recorrências que ainda não viraram lançamento (depois do último mês gerado)
+  const porCartao = new Map(cartoes.map((c) => [c.id, c]));
+  for (const rec of recorrentes) {
+    const virtuais = gerarRecorrencias(rec, fimHorizonte, rec.cartao_id ? porCartao.get(rec.cartao_id) : null);
+    for (const v of virtuais) {
+      const r = mesDe(v.data_pagamento);
+      if (!idx.has(r)) continue;
+      const x = linhas[idx.get(r)];
+      if (v.tipo === 'entrada') x.entradas += v.valor; else if (v.cartao_id) x.faturas += v.valor; else x.saidas += v.valor;
+      x.recorrentes += v.tipo === 'entrada' ? v.valor : -v.valor;
+    }
+  }
+  let saldo = Number(saldoHoje);
+  for (const x of linhas) {
+    x.inicio = arred(saldo);
+    saldo += x.entradas - x.saidas - x.faturas - x.dividas;
+    x.fim = arred(saldo);
+    for (const k of ['entradas', 'saidas', 'faturas', 'recorrentes', 'dividas']) x[k] = arred(x[k]);
+  }
+  return linhas;
 }

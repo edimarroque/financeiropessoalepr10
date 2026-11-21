@@ -13,6 +13,7 @@ export function numero(txt) {
   if (typeof txt === 'number') return txt;
   let s = String(txt || '').trim().replace(/[R$\s]/g, '');
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // "12.000" = doze mil
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -54,7 +55,7 @@ export function modal(titulo, conteudo, aoAbrir, aoFechar) {
   document.body.appendChild(fundo);
   aoAbrir && aoAbrir(fundo.querySelector('.modal'), fechar);
   const primeiro = fundo.querySelector('input:not([type=hidden]),select,textarea');
-  primeiro && setTimeout(() => primeiro.focus(), 50);
+  primeiro && setTimeout(() => { if (!fundo.contains(document.activeElement)) primeiro.focus(); }, 50);
   return fechar;
 }
 

@@ -1,6 +1,21 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.5.0', data: '2026-11-21', titulo: 'Planejamento e patrimônio',
+    novidades: [
+      '💎 Nova tela Patrimônio: patrimônio líquido (contas + investimentos + a receber − dívidas) com gráfico de evolução mês a mês, registrado automaticamente.',
+      '🎯 Metas financeiras: objetivo, valor, prazo, quanto guardar por mês, anel de progresso e evolução. “+ Guardar” pode lançar a saída da conta junto.',
+      '📈 Investimentos de renda fixa e variável (também cripto e previdência): valor aplicado × atual, rentabilidade, aportes/resgates e histórico.',
+      '🤝 Dívidas e empréstimos (eu devo / me devem): saldo, parcelas, juros, simulação de quando quita e registro de pagamentos.',
+      '🔮 Projeção de saldo para 3, 6 ou 12 meses com pendências, faturas, parcelas futuras, recorrentes e dívidas — avisa se for ficar negativo.',
+      '💵 Contas em dólar (ex.: Nomad): saldo em US$ e convertido para reais pela cotação do dia; ao lançar, informe o valor em US$ e a cotação.',
+      '🧾 Despesas dedutíveis do IR: marque no lançamento ou na categoria; relatório anual em Dashboards → Imposto de Renda (imprimível em PDF).',
+      '📎 Comprovante no lançamento: foto reduzida automaticamente (ou PDF até 1 MB), guardada com segurança; miniatura no lançamento.',
+      '🔐 Verificação em 2 etapas com app autenticador (Mais e ajustes → Segurança). Quando ativada, os dados só abrem depois do código.',
+    ],
+    correcoes: ['Backup completo (JSON) agora inclui recorrentes, regras, metas, investimentos, dívidas e patrimônio.'],
+  },
+  {
     versao: '1.4.0', data: '2026-11-21', titulo: 'Usabilidade e controle',
     novidades: [
       '🎨 Temas: claro, escuro ou automático e 7 cores de destaque (Mais e ajustes → Aparência). Vale em todos os aparelhos.',
@@ -83,6 +98,7 @@ export const VERSOES = [
 ];
 
 export const PROXIMAS = [
-  '🎯 Metas financeiras (objetivo, prazo, valor mensal necessário e evolução).',
-  '📈 Investimentos — renda fixa e renda variável.',
+  '🤖 Análise financeira e chat com IA (Gemini) sobre os seus dados.',
+  '✈️ Bot do Telegram: lançar gastos por texto ou foto, enviar PDFs e perguntar.',
+  '📄 Relatório mensal em PDF, avisos de vencimento, backup semanal e integração com o Google Drive.',
 ];

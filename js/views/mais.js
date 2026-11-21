@@ -8,6 +8,8 @@ import { VERSAO } from '../config.js';
 import { prefs, salvarPrefs, CORES_TEMA } from '../prefs.js';
 import { instalar, instalado } from '../servicos/instalar.js';
 import { reiniciarSessao } from '../servicos/sessao.js';
+import { cotacaoUSD, infoCotacao, atualizarCotacao, definirCotacaoManual } from '../servicos/cotacao.js';
+import { numero } from '../ui.js';
 
 function baixar(nome, conteudo, tipo) {
   const blob = new Blob([conteudo], { type: tipo });
@@ -38,7 +40,9 @@ export function exportarCSV() {
 }
 
 export function backupJSON() {
-  const dados = { versao: VERSAO, gerado_em: new Date().toISOString(), contas: S.contas, cartoes: S.cartoes, categorias: S.categorias, lancamentos: S.lancs };
+  const dados = { versao: VERSAO, gerado_em: new Date().toISOString(), contas: S.contas, cartoes: S.cartoes, categorias: S.categorias, lancamentos: S.lancs,
+    recorrentes: S.recorrentes, regras: S.regras, metas: S.metas, metas_movimentos: S.metasMov, investimentos: S.investimentos, investimentos_historico: S.invHist,
+    dividas: S.dividas, dividas_pagamentos: S.dividasPag, patrimonio_mensal: S.patrimonio };
   baixar(`backup_financeiro_${hoje()}.json`, JSON.stringify(dados, null, 2), 'application/json');
   toast('Backup gerado.');
 }
@@ -92,6 +96,7 @@ export function render(el) {
     <div class="atalhos">
       <a href="#/importar"><span>📥</span>Importar</a>
       <a href="#/cadastros"><span>⚙️</span>Cadastros</a>
+      <a href="#/patrimonio"><span>💎</span>Patrimônio</a>
       <a href="#/dashboards"><span>📊</span>Dashboards</a>
       <a href="#/ajuda"><span>❓</span>Como usar</a>
       <a href="#/novidades"><span>✨</span>Novidades <small>v${VERSAO}</small></a>
@@ -112,7 +117,14 @@ export function render(el) {
         <select data-sessao>${[5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${Number(prefs().sessaoMin) === m ? 'selected' : ''}>${m} minutos sem uso</option>`).join('')}</select>
       </label>
       <p class="dica">Enquanto você estiver mexendo no app, a sessão nunca é encerrada. Um minuto antes, aparece um aviso para continuar.</p>
+      <h3>Verificação em 2 etapas</h3>
+      <div data-mfa><p class="dica">Carregando…</p></div>
     </section>
+    ${S.contas.some((c) => c.moeda === 'USD') || S.investimentos.some((i) => i.moeda === 'USD') ? `<section class="cartao-bloco">
+      <h2>💵 Cotação do dólar</h2>
+      <p>US$ 1 = <b>R$ ${cotacaoUSD().toFixed(4).replace('.', ',')}</b> <small class="dica">${infoCotacao() ? `(${infoCotacao().fonte}, ${new Date(infoCotacao().em).toLocaleString('pt-BR')})` : '(padrão)'}</small></p>
+      <div class="acoes"><button class="btn btn-peq" data-cot-atualizar>🔄 Atualizar agora</button><button class="btn btn-peq" data-cot-manual>✎ Informar à mão</button></div>
+    </section>` : ''}
     <section class="cartao-bloco">
       <h2>📲 App no celular</h2>
       ${instalado() ? '<p>✅ Você está usando o app instalado.</p>' : '<p class="dica">Funciona no Android e no iPhone, com os mesmos dados do computador.</p><button class="btn btn-primario" data-instalar>📲 Instalar app</button>'}
@@ -138,6 +150,49 @@ export function render(el) {
   });
   el.querySelector('[data-sessao]').onchange = async (e) => { await salvarPrefs({ sessaoMin: Number(e.target.value) }).catch((er) => toast(er.message, 'erro')); reiniciarSessao(); toast('Tempo de sessão salvo.'); };
   el.querySelector('[data-instalar]')?.addEventListener('click', instalar);
+  montarMFA(el.querySelector('[data-mfa]'));
+  el.querySelector('[data-cot-atualizar]')?.addEventListener('click', async (e) => { await comCarregando(e.currentTarget, () => atualizarCotacao(true)); toast(`Cotação: R$ ${cotacaoUSD().toFixed(4).replace('.', ',')}`); render(el); });
+  el.querySelector('[data-cot-manual]')?.addEventListener('click', () => {
+    const v = numero(prompt('Quantos reais vale US$ 1? (ex.: 5,43)', String(cotacaoUSD()).replace('.', ',')) || '');
+    if (v > 0) { definirCotacaoManual(v); toast('Cotação salva.'); render(el); }
+  });
   el.querySelector('[data-json]').onclick = backupJSON;
   el.querySelector('[data-sair]').onclick = async () => { await db.sair(); };
+}
+
+// ---------------- Verificação em 2 etapas (Google Authenticator, Microsoft Authenticator, Authy…) ----------------
+async function montarMFA(box) {
+  if (!box) return;
+  let fatores = [];
+  try { fatores = await db.fatoresMFA(); } catch (e) { box.innerHTML = `<p class="dica">Não foi possível consultar: ${esc(e.message)}</p>`; return; }
+  if (fatores.length) {
+    box.innerHTML = `<p>✅ <b>Ativada.</b> Ao entrar, o app pede o código de 6 dígitos do seu app autenticador.</p><button class="btn btn-perigo btn-peq" data-mfa-off>Desativar</button>`;
+    box.querySelector('[data-mfa-off]').onclick = async (e) => {
+      const { confirmar } = await import('../ui.js');
+      if (!(await confirmar('Desativar 2 etapas', 'Seu login volta a pedir só e-mail e senha. Continuar?', [{ valor: 'sim', rotulo: 'Desativar', classe: 'btn-perigo' }]))) return;
+      await comCarregando(e.currentTarget, () => db.removerMFA(fatores[0].id));
+      toast('Verificação em 2 etapas desativada.'); montarMFA(box);
+    };
+    return;
+  }
+  box.innerHTML = `<p class="dica">Além da senha, pede um código do celular (Google Authenticator, Microsoft Authenticator ou Authy). Recomendado.</p><button class="btn btn-primario btn-peq" data-mfa-on>🔐 Ativar verificação em 2 etapas</button>`;
+  box.querySelector('[data-mfa-on]').onclick = async (e) => {
+    const r = await comCarregando(e.currentTarget, () => db.cadastrarMFA());
+    modal('Ativar verificação em 2 etapas', `
+      <form class="form">
+        <ol class="lista-simples"><li>Abra o app autenticador no celular e toque em <b>+</b> / “Escanear QR code”.</li>
+          <li>Aponte para o código abaixo (ou digite a chave manualmente).</li><li>Digite o código de 6 dígitos que aparecer.</li></ol>
+        <div class="mfa-qr"><img src="${esc(r.totp.qr_code)}" alt="QR code"><code>${esc(r.totp.secret)}</code></div>
+        <label>Código de 6 dígitos <input name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required placeholder="000000"></label>
+        <div class="acoes"><span class="espaco"></span><button class="btn btn-primario">Confirmar e ativar</button></div>
+      </form>`, (el, fechar) => {
+      const f = el.querySelector('form');
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { await comCarregando(f.querySelector('.btn-primario'), () => db.verificarMFA(r.id, f.codigo.value)); }
+        catch { f.codigo.select(); return; }
+        toast('🔐 Verificação em 2 etapas ativada!'); fechar(); montarMFA(box);
+      };
+    });
+  };
 }

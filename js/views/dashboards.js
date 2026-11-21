@@ -6,6 +6,7 @@ import { esc, brl, pct } from '../ui.js';
 import { periodoHTML, ligarPeriodo, periodoAtual, rotuloPeriodo } from '../components/periodo.js';
 import { barras, rosca, barrasH, selo, PALETA } from '../components/graficos.js';
 import { normDesc } from '../import/parsers.js';
+import { saldoConta } from '../calc.js';
 
 let aba = 'visao';
 let tabelaTipo = 'saida';
@@ -26,7 +27,7 @@ export function render(el) {
       <div class="topo-acoes">${periodoHTML()}</div>
     </div>
     <div class="abas" role="tablist">
-      ${[['visao', '📊 Visão geral'], ['gastos', '💸 Gastos'], ['ganhos', '💰 Ganhos e recebimentos'], ['anual', '🗂️ Painel anual']]
+      ${[['visao', '📊 Visão geral'], ['gastos', '💸 Gastos'], ['ganhos', '💰 Ganhos e recebimentos'], ['anual', '🗂️ Painel anual'], ['ir', '🧾 Imposto de Renda']]
         .map(([v, t]) => `<button class="aba ${aba === v ? 'ativa' : ''}" data-aba="${v}" role="tab" aria-selected="${aba === v}">${t}</button>`).join('')}
     </div>
     <div data-conteudo></div>`;
@@ -35,6 +36,7 @@ export function render(el) {
   if (aba === 'visao') visao(c, r, rAnt, ini, fim, diasPeriodo);
   else if (aba === 'gastos') gastos(c, r, rAnt, ini, fim, ia);
   else if (aba === 'ganhos') ganhos(c, r, rAnt, ini, fim);
+  else if (aba === 'ir') impostoRenda(c);
   else anual(c);
 
   const rerender = () => render(el);
@@ -203,4 +205,37 @@ function anual(el) {
         </table>
       </div>
     </section>`;
+}
+
+// ---------------- Imposto de Renda (ano selecionado) ----------------
+function impostoRenda(el) {
+  const ano = S.ano, ini = `${ano}-01-01`, fim = `${ano}-12-31`;
+  const doAno = S.lancs.filter((l) => l.data_pagamento >= ini && l.data_pagamento <= fim);
+  const ded = doAno.filter((l) => l.tipo === 'saida' && l.dedutivel);
+  const porCat = new Map();
+  for (const l of ded) { const k = l.categoria_id || 'sem'; const x = porCat.get(k) || { total: 0, itens: [] }; x.total += Number(l.valor); x.itens.push(l); porCat.set(k, x); }
+  const totDed = arred(ded.reduce((s2, l) => s2 + Number(l.valor), 0));
+  const receitas = agrupar(S.lancs, ini, fim, (l) => nomeCat(l.categoria_id), 'entrada');
+  const totRec = arred(receitas.reduce((s2, x) => s2 + x.total, 0));
+  const contas = S.contas.map((c) => ({ c, v31: saldoConta(c, S.lancs, fim), vAnt: saldoConta(c, S.lancs, `${ano - 1}-12-31`) }));
+  const semComprovante = ded.filter((l) => !l.comprovante).length;
+  el.innerHTML = `
+    <div class="aviso">🧾 Resumo para ajudar na declaração de <b>${ano}</b> (entregue em ${ano + 1}). Confira sempre com os informes oficiais de rendimentos, do banco e dos prestadores. <button class="btn btn-peq" data-imprimir>🖨️ Imprimir / PDF</button></div>
+    <div class="grade2 imprimir-area">
+      <section class="cartao-bloco span2"><div class="cab-lista"><h2>Despesas dedutíveis</h2><span class="pill">${brl(totDed)}</span></div>
+        <p class="dica">Lançamentos marcados “🧾 Dedutível no IR” (marque na categoria em Cadastros para vir automático). ${semComprovante ? `⚠️ ${semComprovante} sem comprovante anexado.` : ''}</p>
+        ${[...porCat.entries()].map(([k, x]) => `<details class="faq"><summary><b>${esc(k === 'sem' ? 'Sem categoria' : nomeCat(k))}</b> — ${brl(x.total)} (${x.itens.length})</summary>
+          <table class="tabela"><tbody>${x.itens.sort((a, b) => a.data_movimento.localeCompare(b.data_movimento)).map((l) => `<tr><td>${l.data_movimento.split('-').reverse().join('/')}</td><td>${esc(l.descricao)}${l.comprovante ? ' 📎' : ''}</td><td class="num">${brl(l.valor)}</td></tr>`).join('')}</tbody></table></details>`).join('') || '<p class="dica">Nenhuma despesa marcada como dedutível neste ano.</p>'}
+      </section>
+      <section class="cartao-bloco"><div class="cab-lista"><h2>Rendimentos recebidos</h2><span class="pill">${brl(totRec)}</span></div>
+        <table class="tabela"><tbody>${receitas.map((x) => `<tr><td>${esc(x.chave)}</td><td class="num">${brl(x.total)}</td></tr>`).join('') || '<tr><td class="dica">Sem receitas.</td></tr>'}</tbody></table></section>
+      <section class="cartao-bloco"><h2>Bens e direitos (saldos)</h2>
+        <table class="tabela"><thead><tr><th>Conta</th><th class="num">31/12/${ano - 1}</th><th class="num">31/12/${ano}</th></tr></thead><tbody>
+        ${contas.map(({ c, v31, vAnt }) => `<tr><td>${esc(c.nome)}${c.moeda === 'USD' ? ' (US$)' : ''}</td><td class="num">${vAnt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td><td class="num">${v31.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td></tr>`).join('')}
+        ${S.investimentos.map((i) => `<tr><td>${esc(i.nome)} <small>${esc(i.instituicao)}</small></td><td class="num">—</td><td class="num">${Number(i.valor_aplicado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} <small>aplicado</small></td></tr>`).join('')}
+        </tbody></table>
+        ${S.dividas.length ? `<h3>Dívidas e ônus</h3><table class="tabela"><tbody>${S.dividas.filter((d) => d.direcao === 'devo').map((d) => `<tr><td>${esc(d.nome)}</td><td class="num">${brl(d.saldo)}</td></tr>`).join('')}</tbody></table>` : ''}
+        <p class="dica">Na declaração, investimentos entram pelo valor de custo (aplicado), não pelo valor de mercado.</p></section>
+    </div>`;
+  el.querySelector('[data-imprimir]').onclick = () => window.print();
 }
