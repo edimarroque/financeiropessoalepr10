@@ -38,9 +38,16 @@ sw.js / manifest      instalação como app
 - **Pagar fatura** (tela Cartões): registra a saída na conta e marca os itens como pagos, sem contar a despesa duas vezes.
 - **Saldo da conta:** saldo inicial na data informada + tudo que foi recebido/pago a partir dessa data.
 
+## Importar (tela 📥)
+
+- **PDF de fatura**: leitor genérico de linhas "dd/mm descrição [nn/nn] valor", com conferência contra o "Total desta fatura" do PDF. PDF com senha: informe a senha na tela.
+- **OFX** (extrato da conta): débito do boleto/fatura é sugerido como "Pagamento de fatura" (não conta como despesa).
+- **CSV** de banco (colunas Data, Descrição/Estabelecimento, Valor, Parcela) ou no **formato do app** (exportação/migração da planilha).
+- Prévia antes de gravar, categoria sugerida pelo histórico, parcelas futuras criadas automaticamente,
+  bloqueio de duplicados (cada linha tem uma chave única) e **Desfazer** por importação.
+- pdf.js fica em `vendor/pdfjs` (licença Apache 2.0), servido pelo próprio site.
+
 ## Próximas etapas
 
-- Importar fatura em PDF (XP e Itaú) com prévia, controle de duplicidade e desfazer
-- Importar extrato OFX
-- Migrar o histórico da planilha (corrigindo as 62 datas com dia e mês trocados)
+- Ajustar a leitura para os PDFs reais do XP e do Itaú
 - Metas financeiras e investimentos

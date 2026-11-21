@@ -75,6 +75,10 @@ export async function excluir(tabela, id) {
   return ok(await sb.from(tabela).delete().eq('id', id));
 }
 
+export async function excluirOnde(tabela, coluna, valor) {
+  return ok(await sb.from(tabela).delete().eq(coluna, valor));
+}
+
 export async function excluirVarios(tabela, ids) {
   if (!ids.length) return;
   for (let i = 0; i < ids.length; i += 200) {

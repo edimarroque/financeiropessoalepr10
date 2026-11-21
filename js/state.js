@@ -8,6 +8,7 @@ export const S = {
   cartoes: [],
   categorias: [],
   lancs: [],
+  lotes: [],
   mesRef: hoje().slice(0, 7), // mês selecionado no app (compartilhado entre telas)
 };
 
@@ -24,8 +25,12 @@ export async function recarregarLancamentos() {
   S.lancs = await db.listar('lancamentos', 'data_movimento', false);
 }
 
+export async function recarregarLotes() {
+  S.lotes = await db.listar('lotes_importacao', 'created_at', false);
+}
+
 export async function recarregarTudo() {
-  await Promise.all([recarregarCadastros(), recarregarLancamentos()]);
+  await Promise.all([recarregarCadastros(), recarregarLancamentos(), recarregarLotes()]);
 }
 
 export const contaPorId = (id) => S.contas.find((c) => c.id === id);

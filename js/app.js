@@ -7,13 +7,15 @@ import * as lancamentos from './views/lancamentos.js';
 import * as cartoes from './views/cartoes.js';
 import * as cadastros from './views/cadastros.js';
 import * as mais from './views/mais.js';
+import * as importar from './views/importar.js';
 import { abrirFormLancamento } from './views/form-lancamento.js';
 
 const ROTAS = {
   painel: { titulo: 'Painel', icone: '📊', view: painel },
   lancamentos: { titulo: 'Lançamentos', icone: '📋', view: lancamentos },
   cartoes: { titulo: 'Cartões', icone: '💳', view: cartoes },
-  cadastros: { titulo: 'Cadastros', icone: '⚙️', view: cadastros },
+  importar: { titulo: 'Importar', icone: '📥', view: importar },
+  cadastros: { titulo: 'Cadastros', icone: '⚙️', view: cadastros, soLateral: true },
   mais: { titulo: 'Mais', icone: '☰', view: mais },
 };
 
@@ -31,7 +33,7 @@ function montarCasca() {
       <nav>${Object.entries(ROTAS).map(([k, r]) => `<a href="#/${k}" data-rota="${k}"><span>${r.icone}</span>${r.titulo}</a>`).join('')}</nav>
     </aside>
     <main id="tela" tabindex="-1"></main>
-    <nav class="inferior">${Object.entries(ROTAS).map(([k, r]) => `<a href="#/${k}" data-rota="${k}"><span>${r.icone}</span><small>${r.titulo}</small></a>`).join('')}</nav>
+    <nav class="inferior">${Object.entries(ROTAS).filter(([, r]) => !r.soLateral).map(([k, r]) => `<a href="#/${k}" data-rota="${k}"><span>${r.icone}</span><small>${r.titulo}</small></a>`).join('')}</nav>
     <button class="fab" aria-label="Novo lançamento" title="Novo lançamento">+</button>`;
   raiz.querySelector('.fab').onclick = () => abrirFormLancamento(null, desenhar);
 }

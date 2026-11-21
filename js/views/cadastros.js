@@ -17,7 +17,7 @@ export function render(el) {
     <div class="topo-tela"><h1>Cadastros</h1>
       <button class="btn" data-seed>${vazio ? '⬇️ Carregar cadastros da planilha' : '⬇️ Completar com cadastros da planilha'}</button>
     </div>
-    ${vazio ? `<div class="aviso">Toque em <b>“Carregar cadastros da planilha”</b> para trazer suas 4 contas, 3 cartões (com fechamento, vencimento e limite) e 38 categorias. Depois ajuste o <b>saldo inicial</b> de cada conta.</div>` : ''}
+    ${vazio ? `<div class="aviso">Toque em <b>“Carregar cadastros da planilha”</b> para trazer suas 4 contas, 3 cartões (com fechamento, vencimento e limite) e 39 categorias. Depois ajuste o <b>saldo inicial</b> de cada conta.</div>` : ''}
     <div class="abas" role="tablist">
       ${[['contas', `🏦 Contas (${S.contas.length})`], ['cartoes', `💳 Cartões (${S.cartoes.length})`], ['despesa', `⬇️ Categorias de despesa (${S.categorias.filter((c) => c.tipo === 'despesa').length})`], ['receita', `⬆️ Categorias de receita (${S.categorias.filter((c) => c.tipo === 'receita').length})`]]
         .map(([v, r]) => `<button role="tab" class="aba ${aba === v ? 'ativa' : ''}" data-aba="${v}" aria-selected="${aba === v}">${r}</button>`).join('')}

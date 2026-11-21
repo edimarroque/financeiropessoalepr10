@@ -43,6 +43,11 @@ export function render(el) {
   el.innerHTML = `
     <div class="topo-tela"><h1>Mais</h1></div>
     <section class="cartao-bloco">
+      <h2>Cadastros</h2>
+      <p class="dica">Contas, cartões e categorias.</p>
+      <a class="btn" href="#/cadastros">⚙️ Abrir cadastros</a>
+    </section>
+    <section class="cartao-bloco">
       <h2>Seus dados</h2>
       <p class="dica">${S.lancs.length} lançamentos · ${S.contas.length} contas · ${S.cartoes.length} cartões · ${S.categorias.length} categorias</p>
       <div class="botoes-col">
@@ -53,9 +58,7 @@ export function render(el) {
     <section class="cartao-bloco">
       <h2>Em breve</h2>
       <ul class="lista-simples">
-        <li>📥 Importar fatura em PDF (XP e Itaú) com prévia, sem duplicar e com desfazer</li>
-        <li>📥 Importar extrato OFX da conta Itaú</li>
-        <li>📊 Migração do histórico da planilha (com as datas corrigidas)</li>
+        <li>📄 Leitura ajustada para os PDFs do XP e do Itaú</li>
         <li>🎯 Metas financeiras e investimentos</li>
       </ul>
     </section>

@@ -35,6 +35,7 @@ export const DESPESAS = [
   ['⛪', 'Dizimo', 'Despesas Essenciais'],
   ['🥧', 'Padaria', 'Despesas Essenciais'],
   ['🚙', 'Carros', 'Despesas Essenciais'],
+  ['🚗', 'Transporte', 'Despesas Essenciais'],
 ];
 
 export const RECEITAS = [
