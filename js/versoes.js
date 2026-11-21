@@ -1,6 +1,13 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.2.1', data: '2026-11-21', titulo: 'Sugestões de melhorias',
+    novidades: [
+      '💡 Campo “Sugestões de melhorias” no topo desta tela: anote correções e ideias, marque como feitas ou apague.',
+    ],
+    correcoes: [],
+  },
+  {
     versao: '1.2.0', data: '2026-11-21', titulo: 'Dashboards, calendário e personalização',
     novidades: [
       '📊 Nova tela Dashboards: comparativo com o período anterior, despesas por grupo e categoria, painel anual (categorias × 12 meses com total, média e previsto), maiores gastos por estabelecimento, formas de pagamento, dia da semana e recebimentos.',

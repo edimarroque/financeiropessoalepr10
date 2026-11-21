@@ -214,3 +214,25 @@ alter table public.cartoes drop constraint if exists cartoes_imagem_tamanho;
 alter table public.cartoes add constraint cartoes_imagem_tamanho check (imagem is null or length(imagem) <= 200000);
 alter table public.cartoes drop constraint if exists cartoes_final_formato;
 alter table public.cartoes add constraint cartoes_final_formato check (final ~ '^[0-9]{0,4}$');
+
+-- =====================================================================
+-- v1.2.1 — lista de sugestões de melhorias (tela Novidades)
+-- =====================================================================
+create table if not exists public.sugestoes (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  texto      text not null check (length(texto) between 1 and 1000),
+  feito      boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table public.sugestoes enable row level security;
+drop policy if exists "dono_select" on public.sugestoes;
+drop policy if exists "dono_insert" on public.sugestoes;
+drop policy if exists "dono_update" on public.sugestoes;
+drop policy if exists "dono_delete" on public.sugestoes;
+create policy "dono_select" on public.sugestoes for select using (user_id = auth.uid());
+create policy "dono_insert" on public.sugestoes for insert with check (user_id = auth.uid());
+create policy "dono_update" on public.sugestoes for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "dono_delete" on public.sugestoes for delete using (user_id = auth.uid());
+grant select, insert, update, delete on public.sugestoes to authenticated;
+revoke all on public.sugestoes from anon;

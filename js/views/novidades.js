@@ -2,7 +2,29 @@
 import { VERSOES, PROXIMAS } from '../versoes.js';
 import { VERSAO } from '../config.js';
 import { fmtData } from '../calc.js';
-import { esc } from '../ui.js';
+import { esc, toast, confirmar } from '../ui.js';
+import * as db from '../db.js';
+
+let sugestoes = null; // carregadas sob demanda
+
+async function carregarSugestoes() {
+  try { sugestoes = await db.listar('sugestoes', 'created_at'); }
+  catch (e) { sugestoes = []; toast(e.message, 'erro'); }
+}
+
+function sugestoesHTML() {
+  if (sugestoes === null) return '<p class="dica">Carregando…</p>';
+  const abertas = sugestoes.filter((x) => !x.feito), feitas = sugestoes.filter((x) => x.feito);
+  const item = (x) => `
+    <li class="sug ${x.feito ? 'feito' : ''}">
+      <label><input type="checkbox" data-sug-feito="${x.id}" ${x.feito ? 'checked' : ''} aria-label="Marcar como feito"><span>${esc(x.texto)}</span></label>
+      <small>${new Date(x.created_at).toLocaleDateString('pt-BR')}</small>
+      <button class="btn-icone" data-sug-apagar="${x.id}" aria-label="Apagar">🗑️</button>
+    </li>`;
+  return `
+    <ul class="sug-lista">${abertas.map(item).join('') || '<li class="dica">Nenhuma sugestão pendente.</li>'}</ul>
+    ${feitas.length ? `<details class="mt"><summary class="dica">Feitas (${feitas.length})</summary><ul class="sug-lista">${feitas.map(item).join('')}</ul></details>` : ''}`;
+}
 
 const FAQ = [
   ['Meus dados ficam seguros?', 'Sim. Eles ficam no seu banco do Supabase e só são vistos depois do login. Cada usuário só enxerga os próprios dados (regra aplicada no próprio banco) e novos cadastros estão desligados.'],
@@ -14,8 +36,17 @@ const FAQ = [
 ];
 
 export function render(el) {
+  if (sugestoes === null) carregarSugestoes().then(() => { if (el.isConnected) render(el); });
   el.innerHTML = `
     <div class="topo-tela"><div><h1>Novidades</h1><p class="dica">Você está na versão <b>${VERSAO}</b></p></div><a class="btn" href="#/ajuda">❓ Como usar</a></div>
+    <section class="cartao-bloco sugestoes" id="sugestoes">
+      <h2>💡 Sugestões de melhorias</h2>
+      <form class="sug-form" data-sug-form>
+        <input name="texto" maxlength="1000" placeholder="Nova correção ou melhoria…" autocomplete="off" aria-label="Nova sugestão">
+        <button class="btn btn-primario">Adicionar</button>
+      </form>
+      ${sugestoesHTML()}
+    </section>
     <div class="linha-tempo">
       ${VERSOES.map((v, i) => `
         <section class="cartao-bloco versao ${i === 0 ? 'atual' : ''}">
@@ -34,4 +65,29 @@ export function render(el) {
       ${FAQ.map(([p, r]) => `<details class="faq"><summary>${esc(p)}</summary><p>${esc(r)}</p></details>`).join('')}
     </section>`;
   try { localStorage.setItem('versaoVista', VERSAO); } catch { /* sem armazenamento */ }
+
+  const f = el.querySelector('[data-sug-form]');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const texto = f.texto.value.trim();
+    if (!texto) return f.texto.focus();
+    const b = f.querySelector('button'); b.disabled = true;
+    try {
+      const [novo] = await db.inserir('sugestoes', [{ texto }]);
+      sugestoes.push(novo);
+      render(el);
+      el.querySelector('[data-sug-form] input').focus();
+    } catch (err) { toast(err.message, 'erro'); b.disabled = false; }
+  };
+  el.querySelectorAll('[data-sug-feito]').forEach((c) => c.onchange = async () => {
+    const x = sugestoes.find((s) => s.id === c.dataset.sugFeito);
+    try { await db.atualizar('sugestoes', x.id, { feito: c.checked }); x.feito = c.checked; render(el); }
+    catch (err) { toast(err.message, 'erro'); c.checked = !c.checked; }
+  });
+  el.querySelectorAll('[data-sug-apagar]').forEach((b) => b.onclick = async () => {
+    const x = sugestoes.find((s) => s.id === b.dataset.sugApagar);
+    if (!(await confirmar('Apagar sugestão', `Apagar “${esc(x.texto)}”?`, [{ valor: 'sim', rotulo: 'Apagar', classe: 'btn-perigo' }]))) return;
+    try { await db.excluir('sugestoes', x.id); sugestoes = sugestoes.filter((s) => s.id !== x.id); render(el); }
+    catch (err) { toast(err.message, 'erro'); }
+  });
 }

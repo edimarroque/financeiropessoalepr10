@@ -459,3 +459,16 @@ button.sit { cursor: pointer; }
   .imp-cat select { flex: 1; }
 }
 .texto-pdf { white-space: pre-wrap; font-size: .75rem; max-height: 320px; overflow: auto; background: var(--fundo); padding: 10px; border-radius: 8px; }
+
+/* ---------- sugestões ---------- */
+.sugestoes { border-left: 4px solid var(--amarelo); }
+.sug-form { display: flex; gap: 8px; margin-bottom: 10px; }
+.sug-form input { flex: 1; }
+.sug-lista { list-style: none; margin: 0; padding: 0; }
+.sug { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--borda); }
+.sug label { flex: 1; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; min-width: 0; }
+.sug label input { width: 18px; height: 18px; min-height: 0; margin-top: 2px; flex: none; }
+.sug label span { word-break: break-word; }
+.sug small { font-size: .72rem; white-space: nowrap; }
+.sug.feito span { text-decoration: line-through; color: var(--suave); }
+.sug .btn-icone { font-size: 1rem; width: 32px; height: 32px; flex: none; }
