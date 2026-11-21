@@ -167,3 +167,14 @@ alter table public.historico enable row level security;
 drop policy if exists "dono_select" on public.historico;
 create policy "dono_select" on public.historico for select using (user_id = auth.uid());
 -- (histórico é gravado só pelo gatilho; usuário não insere/edita/apaga)
+
+-- ---------------------------------------------------------------------
+-- Permissões: só usuário logado acessa (as regras acima limitam a cada dono).
+-- Projetos novos do Supabase não liberam as tabelas automaticamente.
+-- ---------------------------------------------------------------------
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.contas, public.cartoes, public.categorias, public.lotes_importacao, public.lancamentos to authenticated;
+grant select on public.historico to authenticated;
+revoke all on public.contas, public.cartoes, public.categorias, public.lotes_importacao, public.lancamentos, public.historico from anon;
+-- a função do histórico só roda pelo gatilho, nunca chamada direto pela API
+revoke execute on function public.fn_historico() from public, anon, authenticated;
