@@ -3,7 +3,11 @@
 export const SUPABASE_URL = 'https://sqkvmpuhtsjeabmjdvgc.supabase.co';
 export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxa3ZtcHVodHNqZWFibWpkdmdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyMjI1NDAsImV4cCI6MjExMDc5ODU0MH0.8ASaYhS-lFDWVrvcAnqndClmiJV45tvCeW1S4YvyHCQ';
 export const SITE = 'https://financeiropessoalepr10.vercel.app';
-const MODELOS_PADRAO = 'gemini-3.6-flash,gemini-2.5-flash,gemini-flash-latest';
+// Ordem dos modelos: cada um tem cota grátis própria. O Flash-Lite fica sempre no fim como reserva.
+const MODELOS_PADRAO = 'gemini-flash-latest,gemini-3.6-flash,gemini-flash-lite-latest';
+const RESERVA = 'gemini-flash-lite-latest';
+const PRAZO_IA_MS = 25000;            // nunca passar disso: a função tem 60 s e o Telegram reenvia se não responder
+const pausa = new Map();               // modelo → horário até quando não tentar (cota esgotada / fora do ar)
 
 // Instrução fixa da IA financeira (app e Telegram)
 export const SISTEMA = `Você é um consultor financeiro pessoal brasileiro, direto e prático, que conversa em português do Brasil.
@@ -60,20 +64,31 @@ export async function srv(funcao, params = {}) {
 export async function gemini(partes, { schema = null, sistema = null, temperatura = 0.2, historico = [] } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new ErroHttp(500, 'IA ainda não configurada: falta a variável GEMINI_API_KEY na Vercel.');
-  const modelos = (process.env.GEMINI_MODELS || MODELOS_PADRAO).split(',').map((m) => m.trim()).filter(Boolean);
+  const lista = (process.env.GEMINI_MODELS || MODELOS_PADRAO).split(',').map((m) => m.trim()).filter(Boolean);
+  if (!lista.includes(RESERVA)) lista.push(RESERVA);
+  const agora = Date.now();
+  // modelos em pausa vão para o fim (ainda são tentados se sobrar tempo)
+  const modelos = [...lista.filter((m) => !(pausa.get(m) > agora)), ...lista.filter((m) => pausa.get(m) > agora)];
   const corpo = {
     contents: [...historico, { role: 'user', parts: partes }],
     generationConfig: { temperature: temperatura, ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}) },
     ...(sistema ? { systemInstruction: { parts: [{ text: sistema }] } } : {}),
   };
   const body = JSON.stringify(corpo);
-  let ultimoErro = '';
+  const limite = agora + PRAZO_IA_MS;
+  let cota = 0, ocupado = 0, ultimoErro = '';
   for (const modelo of modelos) {
-    for (let tentativa = 1; tentativa <= 3; tentativa++) {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body,
-      });
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      const resta = limite - Date.now();
+      if (resta < 3000) break;
+      let r;
+      try {
+        r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body, signal: AbortSignal.timeout(resta),
+        });
+      } catch { ultimoErro = `${modelo}: sem resposta`; ocupado++; break; }
       if (r.ok) {
+        pausa.delete(modelo);
         const j = await r.json();
         const texto = (j?.candidates?.[0]?.content?.parts || []).map((p) => p?.text || '').join('').trim();
         if (!texto) { ultimoErro = `${modelo}: resposta vazia`; break; }
@@ -81,14 +96,23 @@ export async function gemini(partes, { schema = null, sistema = null, temperatur
         try { return { json: JSON.parse(texto.replace(/```[a-z]*\n?/gi, '')), modelo, uso: j.usageMetadata || null }; }
         catch { ultimoErro = `${modelo}: JSON inválido`; break; }
       }
-      const txt = (await r.text()).slice(0, 300);
-      ultimoErro = `${modelo} HTTP ${r.status}: ${txt}`;
+      const txt = (await r.text()).slice(0, 200);
+      ultimoErro = `${modelo} HTTP ${r.status}`;
       if (r.status === 401 || r.status === 403) throw new ErroHttp(502, 'A chave do Gemini foi recusada. Confira GEMINI_API_KEY na Vercel.');
-      if (r.status === 404 || r.status === 400) break;
-      await esperar(r.status === 429 || r.status === 503 ? 3000 * tentativa : 1200);
+      if (r.status === 404 || r.status === 400) { console.warn('gemini', modelo, r.status, txt); break; }
+      if (r.status === 429) { cota++; pausa.set(modelo, Date.now() + 15 * 60 * 1000); break; } // cota acabou: não insiste, passa para o próximo
+      ocupado++;
+      if (tentativa === 1 && r.status >= 500) { await esperar(1500); continue; }               // servidor cheio: 1 nova tentativa rápida
+      pausa.set(modelo, Date.now() + 60 * 1000);
+      break;
     }
   }
-  throw new ErroHttp(502, 'A IA não respondeu agora. Tente de novo em alguns minutos. ' + ultimoErro);
+  console.warn('gemini falhou:', ultimoErro);
+  const e = new ErroHttp(503, cota && !ocupado
+    ? 'O limite grátis da IA do Google acabou por hoje (volta por volta das 05:00).'
+    : 'A IA do Google está sobrecarregada agora. Tente de novo em alguns minutos.');
+  e.iaIndisponivel = true;
+  throw e;
 }
 
 // ---------------- Telegram ----------------

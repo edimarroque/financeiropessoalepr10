@@ -1,6 +1,20 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.1', data: '2026-11-22', titulo: 'Bot do Telegram mais rápido e sem depender da IA',
+    novidades: [
+      '⚡ Perguntas sobre os seus dados são respondidas na hora, sem gastar a cota grátis da IA: “oral dents até quando?”, “quais parcelas tenho?”, “quanto gastei com mercado mês passado?”, “busca uber”, “qual meu saldo?”.',
+      '💳 “Até quando” mostra a última parcela (mês/ano), o valor por mês e quanto ainda falta pagar — mesmo quando a fatura importada trouxe só a parcela atual.',
+      '✍️ Lançamentos simples (“mercado 87,50 no débito”) são registrados sem IA quando a categoria é reconhecida pelas suas regras ou pelo nome.',
+      '🤖 A IA (Gemini) fica só para perguntas abertas (“onde posso economizar?”), fotos de cupom e leitura de PDF.',
+    ],
+    correcoes: [
+      'Quando a IA do Google está sobrecarregada ou a cota grátis acaba, o bot avisa em segundos, em vez de ficar minutos tentando e responder duas vezes com o erro técnico.',
+      'Se a cota de um modelo acabar, o bot passa para o Gemini Flash-Lite (cota separada) antes de desistir.',
+      'Com a IA indisponível, um gasto escrito no Telegram é lançado mesmo assim, sem categoria, para você ajustar no app.',
+    ],
+  },
+  {
     versao: '1.6.0', data: '2026-11-21', titulo: 'IA, Telegram e Google Drive',
     novidades: [
       '🤖 Assistente IA (Gemini): botão “Gerar análise” com nota de saúde financeira, maiores gastos, juros/IOF/tarifas, desperdícios, economia possível e ações para o mês. Só roda quando você pede.',

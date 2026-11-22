@@ -7,6 +7,7 @@ import { vencimentoDaCompra, gerarParcelas, hoje, mesDe, fmtData, nomeMes, somar
 import { numerosDoMes } from '../js/relatorio.js';
 import { enviarRelatorio } from './_envios.js';
 import { contextoIA } from '../js/contexto-ia.js';
+import { responderLocal, lancamentoLocal, buscar, norm } from './_perguntas.js';
 import crypto from 'node:crypto';
 
 const fmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -22,7 +23,12 @@ const AJUDA = `🤖 <b>Financeiro Pessoal — bot</b>
 
 <b>Faturas e extratos (PDF):</b> envie o arquivo — ele vai para a Caixa de entrada e você confere em Importar no app.
 
-<b>Perguntas:</b> termine com “?”, ex.: <i>quanto gastei com mercado esse mês?</i>
+<b>Perguntas</b> (respondidas na hora, sem gastar IA):
+• <i>oral dents até quando?</i>
+• <i>quais parcelas tenho?</i>
+• <i>quanto gastei com mercado mês passado?</i>
+• <i>busca uber</i>
+Perguntas abertas (<i>onde posso economizar?</i>) usam a IA.
 
 <b>Comandos:</b> /resumo · /saldo · /faturas · /contas · /relatorio · /ajuda`;
 
@@ -144,15 +150,29 @@ async function cmdContas(ctx, chat) {
   await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: txt ? `🧾 <b>Contas a pagar (próximos 30 dias)</b>\n${txt}` : '✅ Nenhuma conta pendente nos próximos 30 dias.' });
 }
 
+const DICA_SEM_IA = 'Sem IA você pode perguntar, por exemplo:\n• <i>oral dents até quando?</i>\n• <i>quais parcelas tenho?</i>\n• <i>quanto gastei com mercado mês passado?</i>\n• <i>busca uber</i>\nOu use /resumo · /saldo · /faturas · /contas';
+
+/** 1º tenta responder com os próprios dados (sem IA, na hora); só perguntas abertas vão para o Gemini */
 async function responderPergunta(ctx, chat, pergunta) {
   await tg(ctx.token, 'sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
-  const d = await dadosRecentes(ctx, 6);
+  const d = await dadosRecentes(ctx, 13);
+  const local = responderLocal(d, pergunta);
+  if (local?.comando) return ({ saldo: cmdSaldo, faturas: cmdFaturas, contas: cmdContas, resumo: cmdResumo })[local.comando](ctx, chat, '');
+  if (local?.texto) return tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: local.texto.slice(0, 3900) });
+
   const contexto = contextoIA(d, { meses: 6, lancamentosDias: 75 });
-  const { texto } = await gemini([{ text: pergunta.slice(0, 2000) }], {
-    sistema: SISTEMA + '\nVocê está no Telegram: responda em até 10 linhas, texto simples (sem markdown).',
-    historico: [{ role: 'user', parts: [{ text: `DADOS FINANCEIROS:\n${contexto}` }] }, { role: 'model', parts: [{ text: 'Entendido.' }] }], temperatura: 0.4,
-  });
-  await tg(ctx.token, 'sendMessage', { chat_id: chat, text: `🤖 ${texto.slice(0, 3900)}` });
+  try {
+    const { texto } = await gemini([{ text: pergunta.slice(0, 2000) }], {
+      sistema: SISTEMA + '\nVocê está no Telegram: responda em até 10 linhas, texto simples (sem markdown).',
+      historico: [{ role: 'user', parts: [{ text: `DADOS FINANCEIROS:\n${contexto}` }] }, { role: 'model', parts: [{ text: 'Entendido.' }] }], temperatura: 0.4,
+    });
+    await tg(ctx.token, 'sendMessage', { chat_id: chat, text: `🤖 ${texto.slice(0, 3900)}` });
+  } catch (e) {
+    if (!e.iaIndisponivel) throw e;
+    const achados = buscar(d, norm(pergunta).split(' ').filter((p) => p.length >= 4).join(' '));
+    await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML',
+      text: `⚠️ ${escHtml(e.message)}\n\n${achados ? `Enquanto isso, achei nos seus dados:\n${achados}\n\n` : ''}${DICA_SEM_IA}`.slice(0, 3900) });
+  }
 }
 
 function ehPergunta(t) {
@@ -251,8 +271,20 @@ async function processar(ctx, upd) {
   }
   if (ehPergunta(texto)) return responderPergunta(ctx, chat, texto);
 
+  // lançamento simples ("mercado 87,50 no débito"): sem IA quando dá para entender com segurança
+  const local = lancamentoLocal(ctx, texto, hoje(), (desc, tipo) => aplicarRegras(ctx, desc, tipo));
+  if (local?.categoriaCerta) return lancar(ctx, chat, montarLinhas(ctx, [local.item], 'telegram'), `💬 Telegram · ${texto.slice(0, 60)}`);
+
   await tg(ctx.token, 'sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
-  const { json } = await gemini([{ text: `${promptLancamento(ctx)}\n\nMENSAGEM: ${texto.slice(0, 1000)}` }], { schema: SCHEMA_LANC, temperatura: 0 });
+  let json;
+  try { ({ json } = await gemini([{ text: `${promptLancamento(ctx)}\n\nMENSAGEM: ${texto.slice(0, 1000)}` }], { schema: SCHEMA_LANC, temperatura: 0 })); }
+  catch (e) {
+    if (!e.iaIndisponivel || !local) throw e;
+    // IA fora do ar ou sem cota: lança assim mesmo, sem categoria (dá para ajustar no app)
+    const r = await lancar(ctx, chat, montarLinhas(ctx, [local.item], 'telegram'), `💬 Telegram · ${texto.slice(0, 60)}`);
+    await tg(ctx.token, 'sendMessage', { chat_id: chat, text: '🏷️ A IA está indisponível agora, então lancei sem categoria. Ajuste a categoria no app quando puder.' }).catch(() => {});
+    return r;
+  }
   const linhas = montarLinhas(ctx, json.lancamentos || [], 'telegram');
   if (!linhas.length) return responderPergunta(ctx, chat, texto);
   await lancar(ctx, chat, linhas, `💬 Telegram · ${texto.slice(0, 60)}`);

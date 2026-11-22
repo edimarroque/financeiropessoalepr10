@@ -19,7 +19,7 @@ with sync_playwright() as p:
         page.click('.modal [data-v=sim]')
         expect(page.get_by_text('Nenhuma sugestão pendente.')).to_be_visible()
         assert page.evaluate("window.__db.sugestoes.length")==1
-        expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.0')
+        expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.1')
         page.locator('[data-sug-form] input').fill('Teste visual'); page.locator('[data-sug-form] input').press('Enter')
         page.wait_for_timeout(200); page.screenshot(path=f"tests/saida_sug_{vp['width']}.png")
     b.close()
