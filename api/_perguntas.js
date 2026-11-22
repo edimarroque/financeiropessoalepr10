@@ -16,7 +16,9 @@ const VAZIAS = new Set(('a o as os e de do da dos das em no na nos nas com por p
   'passado atual todo toda tudo vai vao vou falta faltam termina terminam acaba acabam finaliza acabar terminar parcela parcelas parcelado parcelada ' +
   'parcelamento parcelamentos gastei gasto gastos gastando despesa despesas paguei pago pagar pagamento recebi recebido ganhei entrada entradas total soma ' +
   'tenho tem valor valores lancamento lancamentos busca buscar procura procurar pesquisa pesquisar ache encontre achar foi foram sao e de categoria ' +
-  'reais r$ seu sua so ainda mais menos maior maiores principais ja agora hoje ontem sobre cartao conta ' + MESES_N.join(' ')).split(' '));
+  'reais r$ seu sua so ainda mais menos maior maiores principais ja agora hoje ontem sobre cartao cartoes conta contas ' +
+  'prestacao prestacoes dividido dividida divididos divididas divida dividas aberto aberta abertos abertas andamento ativo ativa ativos ativas ' +
+  'pendente pendentes restante restantes compra compras fatura faturas vencimento vencimentos credito todas todos cada vez vezes x quero saber ' + MESES_N.join(' ')).split(' '));
 
 /** Palavras que sobram da pergunta depois de tirar as palavras de intenção/período (o "assunto") */
 function assunto(n) {
@@ -53,7 +55,7 @@ function fimDaLinha(l) { return somarMeses(l.data_pagamento, (Number(l.parcela_t
 function resumoParcelado(linhas, hoje) {
   const parc = linhas.filter((l) => Number(l.parcela_total) > 1);
   if (!parc.length) return null;
-  const base = parc.reduce((a, b) => (fimDaLinha(b) > fimDaLinha(a) || (fimDaLinha(b) === fimDaLinha(a) && b.data_pagamento > a.data_pagamento) ? b : a));
+  const base = parc.reduce((a, b) => (fimDaLinha(b) > fimDaLinha(a) || (fimDaLinha(b) === fimDaLinha(a) && b.data_pagamento < a.data_pagamento) ? b : a));
   const total = Number(base.parcela_total), num = Number(base.parcela_num) || 1;
   const datas = Array.from({ length: total - num + 1 }, (_, i) => somarMeses(base.data_pagamento, i));
   const futuras = datas.filter((dt) => dt > hoje).length;
@@ -149,17 +151,20 @@ export function buscar(d, termo, max = 10) {
 }
 
 /**
- * Tenta responder sem IA. Devolve { comando: 'saldo'|'faturas'|'contas'|'resumo' } , { texto } ou null (não entendeu → IA).
+ * Tenta responder sem IA. Devolve { comando: 'saldo'|'faturas'|'contas'|'resumo' } , { texto, depois? } ou null (não entendeu → IA).
  */
 export function responderLocal(d, pergunta, hoje = hojeReal()) {
   const n = norm(pergunta);
   const termo = assunto(n);
   if (/\b(dica|dicas|conselho|analis|analise|economizar|melhorar|cortar|devo|vale a pena|o que (voce|vc) acha|sugest|planej|investir)/.test(n)) return null; // pergunta aberta → IA
 
-  if (/\b(ate quando|ate qual|ate que|quando (termina|acaba|finaliza)|quantas parcelas|parcel|falta(m)? (pagar|quantas))/.test(n)) {
-    const t = responderParcelas(d, n, termo, hoje);
-    if (t) return { texto: t };
-    return { texto: `🔎 Não achei parcelas nem lançamentos com “${esc(termo)}”. Confira o nome como aparece na fatura (ex.: ORALDENTS).` };
+  if (/\b(ate quando|ate qual|ate que|quando (termina|acaba|finaliza)|quantas parcelas|parcel|prestac|dividid|em \d+ ?x|falta(m)? (pagar|quantas))/.test(n)) {
+    const depois = /\bfaturas?\b/.test(n) ? 'faturas' : null;
+    const t = termo && responderParcelas(d, n, termo, hoje);
+    if (t) return { texto: t, depois };
+    // sem nome de loja (ou nome não encontrado): mostra todos os parcelamentos em andamento
+    const todos = responderParcelas(d, n, '', hoje);
+    return { texto: (termo && termo.split(' ').some((p) => p.length >= 4) ? `🔎 Não achei “${esc(termo)}” nos lançamentos. Estes são todos os seus parcelamentos:\n\n` : '') + todos, depois };
   }
   if (/\b(quanto|total|soma)\b.*\b(recebi|ganhei|receb|entrou|entrada)/.test(n)) return { texto: responderTotais(d, n, termo, hoje, true) };
   if (/\b(quanto|total|soma)\b.*\b(gast|paguei|despes|saiu)|\bgastos? (com|de|no|na|em)\b|\bdespesas? com\b|\bmaiores? (gastos|categorias|despesas)|onde (mais )?(gastei|estou gastando)|com o que (mais )?gastei/.test(n))

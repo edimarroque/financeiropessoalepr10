@@ -1,6 +1,11 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.2', data: '2026-11-22', titulo: 'Bot entende melhor perguntas sobre parcelas',
+    novidades: ['💬 “Prestações divididas”, “parcelas abertas”, “parcelamentos em andamento” e jeitos parecidos de perguntar agora mostram a lista de todas as compras parceladas, com valor por mês e até quando vão.', '💳 Se a pergunta citar faturas junto, o bot manda também o valor das faturas abertas.'],
+    correcoes: ['O bot achava que palavras como “divididas” e “abertas” eram o nome de uma loja e respondia “não achei”.', 'A contagem de parcelas que faltam saía errada quando a fatura importada trazia só algumas parcelas (ex.: ORALDENTS mostrava 1 em vez de 6).'],
+  },
+  {
     versao: '1.6.1', data: '2026-11-22', titulo: 'Bot do Telegram mais rápido e sem depender da IA',
     novidades: [
       '⚡ Perguntas sobre os seus dados são respondidas na hora, sem gastar a cota grátis da IA: “oral dents até quando?”, “quais parcelas tenho?”, “quanto gastei com mercado mês passado?”, “busca uber”, “qual meu saldo?”.',

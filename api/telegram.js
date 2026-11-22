@@ -157,8 +157,13 @@ async function responderPergunta(ctx, chat, pergunta) {
   await tg(ctx.token, 'sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
   const d = await dadosRecentes(ctx, 13);
   const local = responderLocal(d, pergunta);
-  if (local?.comando) return ({ saldo: cmdSaldo, faturas: cmdFaturas, contas: cmdContas, resumo: cmdResumo })[local.comando](ctx, chat, '');
-  if (local?.texto) return tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: local.texto.slice(0, 3900) });
+  const cmds = { saldo: cmdSaldo, faturas: cmdFaturas, contas: cmdContas, resumo: cmdResumo };
+  if (local?.comando) return cmds[local.comando](ctx, chat, '');
+  if (local?.texto) {
+    await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: local.texto.slice(0, 3900) });
+    if (local.depois) await cmds[local.depois](ctx, chat, '');
+    return;
+  }
 
   const contexto = contextoIA(d, { meses: 6, lancamentosDias: 75 });
   try {

@@ -69,6 +69,15 @@ assert.ok(!usouIA()); assert.match(ultimaMsg(), /15\/05\/2027/); assert.match(ul
 chamadas.length = 0;
 await telegram(req({ message: { chat: { id: 99 }, text: 'quais parcelas tenho?' } }), res());
 assert.ok(!usouIA()); assert.match(ultimaMsg(), /ORALDENTS/);
+// palavras genéricas ("prestações divididas", "abertas") não viram nome de loja: lista todos os parcelamentos
+for (const f of ['Quantas prestações divididas tenho e até quando?', 'Parcelas divididas', 'Parcelas abertas']) {
+  chamadas.length = 0;
+  await telegram(req({ message: { chat: { id: 99 }, text: f } }), res());
+  assert.ok(!usouIA()); assert.match(ultimaMsg(), /Parcelamentos em andamento/); assert.match(ultimaMsg(), /ORALDENTS/); assert.doesNotMatch(ultimaMsg(), /Não achei/);
+}
+chamadas.length = 0;
+await telegram(req({ message: { chat: { id: 99 }, text: 'As faturas abertas e os parcelamentos divididos vai até quando?' } }), res());
+assert.match(chamadas.filter((c) => c.url.includes('sendMessage')).at(-2).body.text, /Parcelamentos em andamento/); assert.match(ultimaMsg(), /vence/);
 chamadas.length = 0;
 await telegram(req({ message: { chat: { id: 99 }, text: 'qual meu saldo?' } }), res());
 assert.ok(!usouIA()); assert.match(ultimaMsg(), /Saldo hoje/);
