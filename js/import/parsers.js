@@ -264,19 +264,39 @@ function base64DeBytes(bytes) {
   return btoa(s);
 }
 
-/** PDF com senha: o Gemini não abre, então mandamos as páginas como imagem (abertas aqui com a senha) */
-async function paginasComoImagens(buf, senha) {
+// v1.6.3: PDF com mais de PAGS_SEM_DIVIDIR páginas é dividido em partes de PAGS_POR_PARTE páginas, com 1 página
+// repetida entre uma parte e a seguinte (a "virada"); cada parte vai como imagens numa chamada separada (fim do erro 504).
+export const PAGS_SEM_DIVIDIR = 3;
+export const PAGS_POR_PARTE = 4;
+
+/** Partes [de, ate] (páginas 1..n) com 1 página em comum entre partes vizinhas */
+export function dividirPaginas(n, porParte = PAGS_POR_PARTE) {
+  if (n <= PAGS_SEM_DIVIDIR) return [[1, n]];
+  const partes = [];
+  for (let de = 1; ; de = partes[partes.length - 1][1]) {
+    const ate = Math.min(n, de + porParte - 1);
+    partes.push([de, ate]);
+    if (ate >= n) break;
+  }
+  return partes;
+}
+
+function fecharPdf(doc) { try { doc?.destroy?.(); } catch { /* já fechado */ } }
+
+async function abrirPdf(buf, senha) {
   const lib = await carregarPdfjs();
-  let doc;
   try {
-    doc = await lib.getDocument({ data: new Uint8Array(buf), password: senha || undefined, isEvalSupported: false }).promise;
+    return await lib.getDocument({ data: new Uint8Array(buf.slice(0)), password: senha || undefined, isEvalSupported: false }).promise;
   } catch (e) {
     if (e && e.name === 'PasswordException') { const err = new Error(senha ? 'Senha do PDF incorreta.' : 'Este PDF tem senha.'); err.senha = true; throw err; }
     throw new Error('Não consegui abrir o PDF: ' + (e.message || e));
   }
-  if (doc.numPages > 30) throw new Error('PDF com mais de 30 páginas: divida o arquivo antes de importar.');
+}
+
+/** Páginas de..ate como imagens JPEG (o Gemini lê igual; PDF com senha só assim funciona) */
+async function paginasComoImagens(doc, de = 1, ate = doc.numPages) {
   const imagens = [];
-  for (let p = 1; p <= doc.numPages; p++) {
+  for (let p = de; p <= ate; p++) {
     const page = await doc.getPage(p);
     const vp = page.getViewport({ scale: 1.6 });
     const canvas = document.createElement('canvas');
@@ -285,31 +305,139 @@ async function paginasComoImagens(buf, senha) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     imagens.push({ mimeType: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.8).split(',')[1] });
+    canvas.width = canvas.height = 0;
   }
   return imagens;
+}
+
+async function chamarLeitura(tipo, arquivos, token, bloco) {
+  const tamanho = arquivos.reduce((s, a) => s + a.data.length, 0);
+  if (tamanho > LIMITE_ENVIO) throw new Error('Arquivo grande demais para a leitura por IA (limite ~3 MB por parte). Use o leitor simples ou divida o PDF.');
+  let ultimo = '';
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    let r;
+    try {
+      r = await fetch('/api/ler-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tipo, arquivos, ...(bloco ? { bloco } : {}) }),
+      });
+    } catch (e) { ultimo = 'sem conexão com o servidor'; await new Promise((ok) => setTimeout(ok, 2500)); continue; }
+    let j = {};
+    try { j = await r.json(); } catch { /* resposta não-JSON (ex.: 504 da Vercel) */ }
+    if (r.ok) return j;
+    ultimo = j.erro || `erro ${r.status}`;
+    // 504/503 (demorou) e 502 (Gemini instável) valem uma nova tentativa; 400/401/500 não
+    if (![502, 503, 504].includes(r.status) || tentativa === 2) {
+      const e = new Error(r.status === 504 ? 'A leitura demorou demais (erro 504).' : (j.erro || `A leitura por IA falhou (erro ${r.status}).`));
+      throw e;
+    }
+    await new Promise((ok) => setTimeout(ok, 3000));
+  }
+  throw new Error('A leitura por IA falhou: ' + ultimo);
+}
+
+const centavosIA = (v) => Math.round(Math.abs(Number(v) || 0) * 100) * (Number(v) < 0 ? -1 : 1);
+const chaveForte = (x) => `${lerData(x?.data) || x?.data}|${centavosIA(x?.valor)}|${normDesc(x?.descricao)}`;
+const chaveFraca = (x) => `${lerData(x?.data) || x?.data}|${centavosIA(x?.valor)}`;
+
+/**
+ * Emenda as respostas das partes sem perder nem repetir lançamentos na página repetida ("virada").
+ * partes: [{ de, ate, json }] em ordem. Lançamentos da página da virada que já vieram na parte anterior
+ * (mesma data, valor e descrição; ou mesma data e valor se a descrição veio escrita diferente) são descartados;
+ * os que só a parte nova encontrou ficam. Sem número de página, compara o fim da parte anterior com o começo da nova.
+ * Separado para os testes.
+ */
+export function emendarPartes(partes) {
+  const lancs = []; // { x, pagina (absoluta ou null), parte }
+  let repetidos = 0, recuperados = 0;
+  const cab = {};
+  partes.forEach((pt, k) => {
+    const j = pt.json || {};
+    const n = pt.ate - pt.de + 1;
+    const itens = (Array.isArray(j.lancamentos) ? j.lancamentos : []).map((x) => {
+      const p = Number.isInteger(x?.pagina) && x.pagina >= 1 && x.pagina <= n ? pt.de + x.pagina - 1 : null;
+      return { x, pagina: p, parte: k };
+    });
+    if (k === 0) { lancs.push(...itens); }
+    else {
+      const virada = pt.de; // página que também estava na parte anterior
+      const comPagina = itens.every((i) => i.pagina != null) && lancs.filter((l) => l.parte === k - 1).every((l) => l.pagina != null);
+      if (comPagina) {
+        const anteriores = lancs.filter((l) => l.parte === k - 1 && l.pagina === virada);
+        const usados = new Set();
+        const casar = (it, chave) => anteriores.findIndex((a, idx) => !usados.has(idx) && chave(a.x) === chave(it.x));
+        const daVirada = itens.filter((i) => i.pagina === virada);
+        const sobra = [];
+        for (const it of daVirada) { const idx = casar(it, chaveForte); if (idx >= 0) { usados.add(idx); repetidos++; } else sobra.push(it); }
+        for (const it of sobra) {
+          const idx = casar(it, chaveFraca);
+          if (idx >= 0) { usados.add(idx); repetidos++; } else { recuperados++; lancs.push(it); }
+        }
+        lancs.push(...itens.filter((i) => i.pagina !== virada));
+      } else {
+        // sem página: maior trecho igual entre o fim da parte anterior e o começo desta
+        const ant = lancs.filter((l) => l.parte === k - 1).map((l) => chaveForte(l.x));
+        const nov = itens.map((i) => chaveForte(i.x));
+        let m = Math.min(ant.length, nov.length);
+        for (; m > 0; m--) if (ant.slice(ant.length - m).every((c, i) => c === nov[i])) break;
+        repetidos += m;
+        lancs.push(...itens.slice(m));
+      }
+    }
+    for (const c of ['vencimento', 'totalFatura', 'periodoInicio', 'saldoInicial']) if (cab[c] == null && j[c] != null) cab[c] = j[c];
+    for (const c of ['periodoFim', 'saldoFinal']) if (j[c] != null) cab[c] = j[c];
+    if (j.modelo) cab.modelos = [...new Set([...(cab.modelos || []), j.modelo])];
+  });
+  // ordem do documento: página e, dentro da página, a ordem em que a IA leu
+  const todasComPagina = lancs.every((l) => l.pagina != null);
+  const ordem = todasComPagina ? lancs.map((l, i) => ({ ...l, i })).sort((a, b) => a.pagina - b.pagina || a.i - b.i) : lancs;
+  return {
+    vencimento: cab.vencimento ?? null, totalFatura: cab.totalFatura ?? null,
+    periodoInicio: cab.periodoInicio ?? null, periodoFim: cab.periodoFim ?? null,
+    saldoInicial: cab.saldoInicial ?? null, saldoFinal: cab.saldoFinal ?? null,
+    modelo: (cab.modelos || []).join(', '),
+    lancamentos: ordem.map((l) => l.x),
+    emenda: { partes: partes.length, repetidos, recuperados },
+  };
 }
 
 /**
  * Lê fatura (tipo 'cartao') ou extrato (tipo 'extrato') com o Gemini.
  * Devolve o mesmo formato dos outros leitores, mais: modelo, vencimentoLido e, no extrato, variacaoDeclarada.
+ * aoProgredir(parte, total) é chamado antes de cada parte (PDF grande).
  */
-export async function lerPdfComIA(buf, { tipo, senha, token }) {
+export async function lerPdfComIA(buf, { tipo, senha, token, aoProgredir } = {}) {
   const temSenha = await pdfTemSenha(buf);
-  const arquivos = temSenha
-    ? await paginasComoImagens(buf, senha)
-    : [{ mimeType: 'application/pdf', data: base64DeBytes(new Uint8Array(buf)) }];
-  const tamanho = arquivos.reduce((s, a) => s + a.data.length, 0);
-  if (tamanho > LIMITE_ENVIO) throw new Error('Arquivo grande demais para a leitura por IA (limite ~3 MB). Use o leitor simples ou divida o PDF.');
-
-  const r = await fetch('/api/ler-pdf', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ tipo, arquivos }),
-  });
-  let j = {};
-  try { j = await r.json(); } catch { /* resposta não-JSON */ }
-  if (!r.ok) throw new Error(j.erro || `A leitura por IA falhou (erro ${r.status}).`);
-  return converterRespostaIA(j, tipo);
+  const doc = await abrirPdf(buf, temSenha ? senha : undefined);
+  const n = doc.numPages;
+  if (n > 60) throw new Error('PDF com mais de 60 páginas: divida o arquivo antes de importar.');
+  const partes = dividirPaginas(n);
+  if (partes.length === 1) {
+    // poucas páginas: como antes (PDF original; imagens só se tiver senha)
+    const arquivos = temSenha ? await paginasComoImagens(doc) : [{ mimeType: 'application/pdf', data: base64DeBytes(new Uint8Array(buf)) }];
+    aoProgredir?.(1, 1);
+    const j = await chamarLeitura(tipo, arquivos, token);
+    fecharPdf(doc);
+    return converterRespostaIA(j, tipo);
+  }
+  const respostas = [];
+  for (let k = 0; k < partes.length; k++) {
+    const [de, ate] = partes[k];
+    aoProgredir?.(k + 1, partes.length);
+    const arquivos = await paginasComoImagens(doc, de, ate);
+    try {
+      respostas.push({ de, ate, json: await chamarLeitura(tipo, arquivos, token, { de, ate, total: n }) });
+    } catch (e) {
+      fecharPdf(doc);
+      throw new Error(`Parte ${k + 1} de ${partes.length} (páginas ${de}–${ate}): ${e.message} Nada foi gravado; tente de novo.`);
+    }
+  }
+  fecharPdf(doc);
+  const j = emendarPartes(respostas);
+  const lido = converterRespostaIA(j, tipo);
+  lido.emenda = j.emenda;
+  return lido;
 }
 
 async function pdfTemSenha(buf) {

@@ -1,4 +1,5 @@
 // Tela: Dashboards avançados — gastos, ganhos e recebimentos
+import { COR_SEM_CATEGORIA } from '../components/graficos.js';
 import { S, categoriaPorId, cartaoPorId, contaPorId } from '../state.js';
 import { resumoIntervalo, periodoAnterior, intervalo, variacao, matrizAnual, agrupar, diasEntre, hoje,
   MESES_CURTOS, DIAS_SEMANA, partes, GRUPOS_DESPESA, arred, assinaturasRepetidas } from '../calc.js';
@@ -51,7 +52,7 @@ function visao(el, r, rAnt, ini, fim, dias) {
   const taxaAnt = rAnt.receitas ? (rAnt.receitas - rAnt.despesas) / rAnt.receitas : null;
   const mediaDia = dias > 0 ? r.despesas / dias : 0;
   const grupos = GRUPOS_DESPESA.map((g, i) => ({ nome: g, valor: r.porGrupo.get(g) || 0, cor: ['#2563eb', '#f59e0b', '#14b8a6'][i] })).filter((x) => x.valor > 0);
-  if (r.porGrupo.get('Sem categoria')) grupos.push({ nome: 'Sem categoria', valor: r.porGrupo.get('Sem categoria'), cor: '#94a3b8' });
+  if (r.porGrupo.get('Sem categoria')) grupos.push({ nome: 'Sem categoria', valor: r.porGrupo.get('Sem categoria'), cor: COR_SEM_CATEGORIA });
 
   // série mensal do ano (ou do mês dentro do ano)
   const ano = S.ano;
@@ -78,7 +79,7 @@ function visao(el, r, rAnt, ini, fim, dias) {
 
 function topCategorias(r, tipo, n) {
   return [...r.porCategoria.values()].filter((x) => x.tipo === tipo).sort((a, b) => b.total - a.total).slice(0, n)
-    .map((x, i) => ({ rotulo: x.categoria ? `${x.categoria.emoji} ${x.categoria.nome}` : 'Sem categoria', valor: x.total, extra: `${x.qtd}x`, cor: PALETA[i % PALETA.length] }));
+    .map((x, i) => ({ rotulo: x.categoria ? `${x.categoria.emoji} ${x.categoria.nome}` : 'Sem categoria', valor: x.total, extra: `${x.qtd}x`, cor: x.categoria ? PALETA[i % PALETA.length] : COR_SEM_CATEGORIA }));
 }
 
 // ---------------- Gastos ----------------

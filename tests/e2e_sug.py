@@ -15,11 +15,12 @@ with sync_playwright() as p:
         expect(page.locator('.sug-lista').first.locator('.sug')).to_have_count(2)
         page.locator('.sug', has_text='Ajustar PDF do XP').locator('input').check()
         expect(page.get_by_text('Feitas (1)')).to_be_visible()
+        page.locator('.sug', has_text='Metas financeiras').locator('[data-sug-abrir]').click()
         page.locator('.sug', has_text='Metas financeiras').locator('[data-sug-apagar]').click()
         page.click('.modal [data-v=sim]')
         expect(page.get_by_text('Nenhuma sugestão pendente.')).to_be_visible()
         assert page.evaluate("window.__db.sugestoes.length")==1
-        expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.2')
+        expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.3')
         page.locator('[data-sug-form] input').fill('Teste visual'); page.locator('[data-sug-form] input').press('Enter')
         page.wait_for_timeout(200); page.screenshot(path=f"tests/saida_sug_{vp['width']}.png")
     b.close()

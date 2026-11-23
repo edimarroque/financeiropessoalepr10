@@ -71,11 +71,66 @@ function montarCasca() {
     </aside>
     <main id="tela" tabindex="-1"></main>
     <nav class="inferior">${MOBILE.map((k) => `<a href="#/${k}" data-rota="${k}"><span>${ROTAS[k].icone}</span><small>${k === 'mais' ? 'Mais' : ROTAS[k].titulo}</small></a>`).join('')}</nav>
-    <button class="fab" aria-label="Novo lançamento" title="Novo lançamento">+</button>`;
+    <button class="fab" aria-label="Novo lançamento" title="Novo lançamento">+</button>
+    <div class="ptr" aria-hidden="true"><span>⟳</span></div>`;
+  ligarAtualizar();
   raiz.querySelector('.fab').onclick = () => abrirFormLancamento(null, desenhar);
   raiz.querySelector('[data-sair]').onclick = () => sairAgora();
   raiz.querySelector('[data-instalar]')?.addEventListener('click', instalar);
   raiz.querySelector('[data-perfil]').onclick = () => abrirPerfil(() => { montarCasca(); desenhar(); });
+}
+
+// ---------- v1.6.3: atualizar sem recarregar o navegador (botão ⟳ e puxar a tela para baixo no celular) ----------
+let atualizando = false;
+async function atualizarDados() {
+  if (atualizando || !S.user) return;
+  atualizando = true;
+  document.body.classList.add('atualizando');
+  try {
+    await recarregarTudo();
+    desenhar();
+    toast('Dados atualizados.');
+  } catch (e) { toast('Não consegui atualizar: ' + e.message, 'erro'); }
+  finally { atualizando = false; document.body.classList.remove('atualizando'); }
+}
+
+let observador = null;
+function ligarAtualizar() {
+  const tela = document.getElementById('tela');
+  // o botão entra no topo de cada tela (as telas se redesenham sozinhas, então ele é recolocado quando some)
+  const colocar = () => {
+    const topo = tela.querySelector(':scope > .topo-tela');
+    if (topo && !topo.querySelector('[data-atualizar-dados]')) {
+      const b = document.createElement('button');
+      b.className = 'btn-icone btn-atualizar'; b.dataset.atualizarDados = ''; b.type = 'button';
+      b.title = 'Atualizar dados'; b.setAttribute('aria-label', 'Atualizar dados'); b.textContent = '⟳';
+      b.onclick = atualizarDados;
+      topo.appendChild(b);
+    }
+  };
+  observador?.disconnect();
+  observador = new MutationObserver(colocar);
+  observador.observe(tela, { childList: true });
+  colocar();
+
+  const ptr = raiz.querySelector('.ptr');
+  let y0 = null, dy = 0;
+  const LIMIAR = 70;
+  const podeComecar = (e) => window.scrollY <= 0 && !document.querySelector('.modal-fundo') && !e.target?.closest?.('input, textarea, select, .abas, .tabela-rolagem');
+  window.ontouchstart = (e) => { y0 = e.touches.length === 1 && podeComecar(e) ? e.touches[0].clientY : null; dy = 0; };
+  window.ontouchmove = (e) => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { ptr.style.transform = ''; ptr.classList.remove('pronto', 'puxando'); return; }
+    ptr.classList.add('puxando');
+    const d = Math.min(dy * 0.5, LIMIAR + 20);
+    ptr.style.transform = `translate(-50%, ${d}px) rotate(${d * 4}deg)`;
+    ptr.classList.toggle('pronto', dy * 0.5 >= LIMIAR);
+  };
+  window.ontouchend = () => {
+    if (y0 != null && dy * 0.5 >= LIMIAR) atualizarDados();
+    y0 = null; dy = 0; ptr.style.transform = ''; ptr.classList.remove('pronto', 'puxando');
+  };
 }
 
 window.addEventListener('perfil-mudou', () => { if (S.user) { montarCasca(); desenhar(); } });

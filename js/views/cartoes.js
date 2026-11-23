@@ -7,6 +7,7 @@ import { abrirFormLancamento } from './form-lancamento.js';
 import { cartaoVisual } from '../components/visual.js';
 
 const aberto = {}; // cartão id -> vencimento selecionado
+const listaAberta = new Set(); // cartões com a lista de gastos expandida (v1.6.3: começa recolhida)
 
 // total gasto no cartão no ano corrente (pelo vencimento da fatura), como na Análise Cartões da planilha
 function totalAno(c) {
@@ -71,6 +72,8 @@ export function render(el) {
           : `<button class="btn btn-primario" data-pagar="${c.id}" data-v="${sel}">Pagar fatura</button>`}</div>
       </div>
 
+      ${fa.itens.length ? `<details class="cc-gastos" data-gastos="${c.id}" ${listaAberta.has(c.id) ? 'open' : ''}>
+        <summary><span class="seta" aria-hidden="true">▸</span> Gastos desta fatura <small>(${fa.itens.length})</small></summary>
       <div class="lista">
         ${fa.itens.map((l) => `
           <div class="item" data-id="${l.id}" tabindex="0" role="button">
@@ -79,13 +82,14 @@ export function render(el) {
               <div class="item-sub">${fmtData(l.data_movimento)} · ${esc(nomeCategoria(l.categoria_id))}</div>
             </div>
             <div class="item-fim"><div class="valor ${l.tipo === 'entrada' ? 'pos' : ''}">${l.tipo === 'entrada' ? '−' : ''}${brl(l.valor)}</div></div>
-          </div>`).join('') || '<p class="dica">Nenhum lançamento nesta fatura.</p>'}
-      </div>
+          </div>`).join('') || ''}
+      </div></details>` : '<p class="dica">Nenhum lançamento nesta fatura.</p>'}
     </section>`;
   }).join('');
 
   const rerender = () => render(el);
   el.querySelectorAll('[data-venc]').forEach((s) => s.onchange = () => { aberto[s.dataset.venc] = s.value; rerender(); });
+  el.querySelectorAll('[data-gastos]').forEach((d) => d.ontoggle = () => { if (d.open) listaAberta.add(d.dataset.gastos); else listaAberta.delete(d.dataset.gastos); });
   el.querySelectorAll('[data-editar-cartao]').forEach((a) => a.onclick = () => { sessionStorage.setItem('abrirCartao', a.dataset.editarCartao); });
   el.querySelectorAll('[data-lancar]').forEach((b) => b.onclick = () => abrirFormLancamento(null, rerender, { tipo: 'saida', origem: `cartao:${b.dataset.lancar}` }));
   el.querySelectorAll('.item[data-id]').forEach((it) => it.onclick = () => abrirFormLancamento(S.lancs.find((l) => l.id === it.dataset.id), rerender));

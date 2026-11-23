@@ -1,6 +1,22 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.3', data: '2026-11-23', titulo: 'PDF grande sem erro 504 e telas mais compactas',
+    novidades: [
+      '📄 PDF grande (mais de 3 páginas) é lido em partes de até 4 páginas, uma de cada vez, com aviso “lendo a parte 2 de 4…”. Você envia o PDF inteiro; não precisa mais dividir o arquivo.',
+      '🧩 As partes são emendadas sem perder nem repetir lançamentos: a última página de cada parte é lida de novo na parte seguinte e o app compara data, valor e descrição para não contar duas vezes (e mantém o que só a parte seguinte encontrou). A prévia mostra como foi a emenda.',
+      '⟳ Botão de atualizar no topo de cada tela e, no celular, é só puxar a tela para baixo — traz o que você lançou pelo Telegram ou em outro aparelho sem recarregar o navegador.',
+      '🗂️ Novidades e Sugestões em modo compacto: versões fechadas (toque para abrir), sugestões agrupadas pela versão planejada e com uma linha só (toque para ver inteira).',
+      '💳 Cartões em modo compacto: os gastos da fatura ficam recolhidos; toque na seta para ver.',
+    ],
+    correcoes: [
+      'Erro 504 ao ler extratos e faturas grandes com IA: o servidor agora para antes do limite da Vercel e o app tenta a parte de novo sozinho; se ainda falhar, avisa qual parte e nada é gravado.',
+      'Aviso de duplicados na conta: um lançamento que já existe na conta vindo de outra importação (com a descrição escrita um pouco diferente) agora aparece como “parecido” e fica desmarcado; e a prévia avisa quando o período do extrato já foi importado antes.',
+      '“Sem categoria” aparecia em rosa claro nos gráficos; agora é cinza (cor neutra).',
+      'Celular: a página não dá mais zoom ao tocar nos campos (iPhone) e se ajusta à largura da tela, sem arrastar para os lados.',
+    ],
+  },
+  {
     versao: '1.6.2', data: '2026-11-22', titulo: 'Bot entende melhor perguntas sobre parcelas',
     novidades: ['💬 “Prestações divididas”, “parcelas abertas”, “parcelamentos em andamento” e jeitos parecidos de perguntar agora mostram a lista de todas as compras parceladas, com valor por mês e até quando vão.', '💳 Se a pergunta citar faturas junto, o bot manda também o valor das faturas abertas.'],
     correcoes: ['O bot achava que palavras como “divididas” e “abertas” eram o nome de uma loja e respondia “não achei”.', 'A contagem de parcelas que faltam saía errada quando a fatura importada trazia só algumas parcelas (ex.: ORALDENTS mostrava 1 em vez de 6).'],

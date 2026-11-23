@@ -2,7 +2,9 @@
 // e devolve os lançamentos em JSON. A chave do Gemini fica SÓ aqui, na variável GEMINI_API_KEY da Vercel.
 //
 // POST /api/ler-pdf   Authorization: Bearer <token do login Supabase>
-// corpo: { tipo: 'cartao' | 'extrato', arquivos: [{ mimeType, data(base64) }] }
+// corpo: { tipo: 'cartao' | 'extrato', arquivos: [{ mimeType, data(base64) }], bloco?: { de, ate, total } }
+//   bloco (v1.6.3): o app divide PDFs grandes em partes de poucas páginas (imagens) e manda uma por vez;
+//   cada lançamento volta com "pagina" (1 = primeira imagem enviada) para o app emendar as partes.
 // resposta: { modelo, vencimento, totalFatura, periodoInicio, periodoFim, saldoInicial, saldoFinal, lancamentos: [...] }
 //
 // Substitui os Apps Scripts de conversão (Itaú salário, Itaú pessoal, XP OFX e XP CSV).
@@ -49,7 +51,7 @@ const SCHEMA = {
         type: 'OBJECT',
         properties: {
           data: { type: 'STRING' }, descricao: { type: 'STRING' }, valor: { type: 'NUMBER' },
-          portador: nul('STRING'), parcelaAtual: nul('INTEGER'), parcelaTotal: nul('INTEGER'),
+          portador: nul('STRING'), parcelaAtual: nul('INTEGER'), parcelaTotal: nul('INTEGER'), pagina: nul('INTEGER'),
         },
         required: ['data', 'descricao', 'valor'],
       },
@@ -59,6 +61,18 @@ const SCHEMA = {
 };
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+// a Vercel corta em 60 s (erro 504); paramos antes e devolvemos um erro claro (LER_PDF_TEMPO_MAX só para testes)
+const tempoMax = () => Number(process.env.LER_PDF_TEMPO_MAX) || 50_000;
+
+function textoBloco(bloco) {
+  if (!bloco) return '';
+  const de = Number(bloco.de), ate = Number(bloco.ate), total = Number(bloco.total);
+  if (!(de >= 1 && ate >= de && total >= ate)) return '';
+  return ` ATENÇÃO: as imagens são SÓ as páginas ${de} a ${ate} de um documento de ${total} páginas (cada imagem é uma página, na ordem). ` +
+    'Extraia todos os lançamentos visíveis nessas páginas, inclusive os da primeira e da última imagem, mesmo que pareçam continuação. ' +
+    'Em cada lançamento informe pagina = número da imagem onde ele aparece (1 = primeira imagem enviada). ' +
+    'Campos de cabeçalho (vencimento, totalFatura, período, saldos) só se aparecerem nestas páginas; senão null.';
+}
 
 async function usuarioLogado(req) {
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -68,6 +82,8 @@ async function usuarioLogado(req) {
 }
 
 async function chamarGemini(prompt, arquivos, apiKey) {
+  const inicio = Date.now();
+  const TEMPO_MAX = tempoMax();
   const modelos = (process.env.GEMINI_MODELS || MODELOS_PADRAO).split(',').map((m) => m.trim()).filter(Boolean);
   const body = JSON.stringify({
     contents: [{ parts: [...arquivos.map((a) => ({ inlineData: { mimeType: a.mimeType, data: a.data } })), { text: prompt }] }],
@@ -76,9 +92,22 @@ async function chamarGemini(prompt, arquivos, apiKey) {
   let ultimoErro = '';
   for (const modelo of modelos) {
     for (let tentativa = 1; tentativa <= 3; tentativa++) {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body,
-      });
+      const resta = TEMPO_MAX - (Date.now() - inicio);
+      if (resta < 5000) { const e = new Error('A leitura demorou demais. O app vai tentar esta parte de novo.'); e.status = 503; e.tempo = true; throw e; }
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), resta);
+      let r;
+      try {
+        r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body, signal: ctl.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err?.name === 'AbortError') { const e = new Error('A leitura demorou demais. O app vai tentar esta parte de novo.'); e.status = 503; e.tempo = true; throw e; }
+        ultimoErro = `${modelo}: ${err?.message || err}`;
+        continue;
+      }
+      clearTimeout(timer);
       if (r.ok) {
         const j = await r.json();
         const texto = (j?.candidates?.[0]?.content?.parts || []).map((p) => p?.text || '').join('').replace(/```[a-z]*\n?/gi, '').trim();
@@ -92,7 +121,7 @@ async function chamarGemini(prompt, arquivos, apiKey) {
       ultimoErro = `${modelo} HTTP ${r.status}: ${txt}`;
       if (r.status === 401 || r.status === 403) { const e = new Error('A chave do Gemini foi recusada. Confira GEMINI_API_KEY na Vercel.'); e.status = 502; throw e; }
       if (r.status === 404 || r.status === 400) break; // modelo indisponível: próximo da lista
-      await esperar(r.status === 429 || r.status === 503 ? 4000 * tentativa : 1500);
+      await esperar(Math.min(r.status === 429 || r.status === 503 ? 4000 * tentativa : 1500, Math.max(0, TEMPO_MAX - (Date.now() - inicio) - 5000)));
     }
   }
   const e = new Error('O Gemini não conseguiu ler o arquivo agora. Tente de novo em alguns minutos. Detalhe: ' + ultimoErro);
@@ -108,16 +137,17 @@ export default async function handler(req, res) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return res.status(500).json({ erro: 'Leitura por IA ainda não configurada: falta a variável GEMINI_API_KEY na Vercel.' });
 
-    const { tipo, arquivos } = req.body || {};
+    const { tipo, arquivos, bloco } = req.body || {};
     if (tipo !== 'cartao' && tipo !== 'extrato') return res.status(400).json({ erro: 'Tipo inválido.' });
     if (!Array.isArray(arquivos) || !arquivos.length || arquivos.length > 30 ||
         arquivos.some((a) => !TIPOS_ACEITOS.has(a?.mimeType) || typeof a?.data !== 'string' || !a.data)) {
       return res.status(400).json({ erro: 'Arquivo inválido.' });
     }
 
-    const { json, modelo } = await chamarGemini(tipo === 'cartao' ? PROMPT_CARTAO : PROMPT_EXTRATO, arquivos, apiKey);
+    const prompt = (tipo === 'cartao' ? PROMPT_CARTAO : PROMPT_EXTRATO) + textoBloco(bloco);
+    const { json, modelo } = await chamarGemini(prompt, arquivos, apiKey);
     return res.status(200).json({ ...json, modelo });
   } catch (e) {
-    return res.status(e.status || 500).json({ erro: e.message || String(e) });
+    return res.status(e.status || 500).json({ erro: e.message || String(e), tempo: !!e.tempo });
   }
 }

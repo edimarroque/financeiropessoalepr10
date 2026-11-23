@@ -47,8 +47,11 @@ python3 -m http.server 8765   # servir uma cópia do site com importmap apontand
 node tests/calc.test.mjs
 node tests/api.test.mjs
 python3 tests/e2e.py && python3 tests/e2e_import.py && python3 tests/e2e_v12.py && python3 tests/e2e_sug.py && python3 tests/e2e_ia.py
-python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py
+python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py && python3 tests/e2e_v163.py
+node tests/pdf-partes.test.mjs && node tests/ler-pdf.test.mjs
 ```
+PDF com mais de 3 páginas é lido em partes de 4 páginas (1 repetida na virada) — `dividirPaginas`/`emendarPartes` em `js/import/parsers.js`.
+O bot do Telegram não lê PDF: só guarda na Caixa de entrada; a leitura é no app.
 Montar a cópia: copiar o repo para /tmp/site, copiar `tests/mock-supabase.js` para /tmp/site/tests/ e inserir em
 index.html, antes do CSS: `<script type="importmap">{"imports":{"https://esm.sh/@supabase/supabase-js@2":"/tests/mock-supabase.js"}}</script>`.
 Os testes usam Chrome em `/usr/bin/google-chrome` (Playwright). `tests/fixtures/migracao_planilha_2026.csv`

@@ -60,6 +60,7 @@ function renderInicio(el) {
         <label class="check" data-bloco="fatura"><input type="checkbox" name="futuras" checked> Criar as parcelas futuras das compras parceladas (ex.: 6/10 cria 7/10 até 10/10)</label>
         <label class="check" data-bloco="fatura"><input type="checkbox" name="paga"> Esta fatura já foi paga</label>
         <p class="dica" data-bloco="app">Arquivo no formato do app (exportação ou migração da planilha): cada linha já traz conta, cartão e categoria.</p>
+        <p class="dica" data-progresso hidden></p>
         <div class="acoes"><span class="espaco"></span><button class="btn btn-primario" data-ler>Ler arquivo e ver prévia</button></div>
       </div>
     </section>
@@ -137,14 +138,21 @@ function renderInicio(el) {
       origemArquivo, arquivoObj: arquivoAtual,
     };
     if (cfg.destTipo !== 'app' && !id) return toast('Escolha o destino.', 'erro');
-    await comCarregando(e.currentTarget, async () => {
+    const botaoLer = e.currentTarget;
+    await comCarregando(botaoLer, async () => {
       const buf = await arquivo.arrayBuffer();
       let lido;
       const senha = el.querySelector('[name=senha]').value;
       if (ext === 'pdf' && cfg.ia) {
         const sessao = await db.sessaoAtual();
         if (!sessao) throw new Error('Sua sessão expirou. Entre de novo.');
-        lido = await lerPdfComIA(buf, { tipo: q === 'cartao' ? 'cartao' : 'extrato', senha, token: sessao.access_token });
+        const aviso = el.querySelector('[data-progresso]');
+        try {
+          lido = await lerPdfComIA(buf, {
+            tipo: q === 'cartao' ? 'cartao' : 'extrato', senha, token: sessao.access_token,
+            aoProgredir: (k, n) => { if (aviso && n > 1) { aviso.hidden = false; aviso.textContent = `🤖 PDF grande: lendo a parte ${k} de ${n}… (pode levar alguns minutos, não feche a tela)`; } },
+          });
+        } finally { if (aviso) aviso.hidden = true; }
         lido.alertas = [];
         if (q === 'cartao' && lido.vencimentoLido && lido.vencimentoLido !== cfg.venc) {
           lido.alertas.push(`O PDF diz que o vencimento é ${fmtData(lido.vencimentoLido)}, mas você escolheu ${fmtData(cfg.venc)}. Se estiver errado, volte e troque o vencimento.`);
@@ -194,6 +202,8 @@ function pareceFatura(d) {
 function preparar() {
   const { cfg, lido, edits } = imp;
   const existentes = new Set(S.lancs.map((l) => l.chave_dedup).filter(Boolean));
+  const usados = new Set(); // lançamentos já gravados que já casaram com uma linha do arquivo
+  const existentesArquivo = new Set(); // chaves do próprio arquivo que já existem (não servem de "parecido" para outra linha)
   const seq = new Map(); // para manter duas compras iguais no mesmo dia
   const comSeq = (k) => { const n = (seq.get(k) || 0) + 1; seq.set(k, n); return n > 1 ? `${k}#${n}` : k; };
   const linhas = [];
@@ -264,14 +274,19 @@ function preparar() {
       else if (!L.categoria_id) { const sg = sugerir(L.descricao, L.tipo); L.categoria_id = sg?.categoria_id || null; L.sugerida = sg?.origem || false; }
     } else L.categoria_id = null;
 
-    // duplicados: mesma chave já gravada, ou lançamento manual muito parecido
+    // duplicados: mesma chave já gravada, ou lançamento parecido que já existe (feito à mão, pelo Telegram
+    // ou de outra importação com a descrição escrita diferente). Cada lançamento existente só "casa" com um do arquivo.
     L.dup = existentes.has(L.chave);
-    if (!L.dup) {
-      const k0 = normDesc(L.descricao);
-      const prefixo = L.chave.split(':')[0];
-      L.parecido = S.lancs.some((x) => (!x.chave_dedup || x.chave_dedup.split(':')[0] !== prefixo) && x.tipo === L.tipo && centavos(x.valor) === centavos(L.valor) &&
-        x.data_movimento === L.data_movimento && (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id) &&
-        (!k0 || normDesc(x.descricao) === k0 || normDesc(x.descricao).split(' ')[0] === k0.split(' ')[0]));
+    if (L.dup) existentesArquivo.add(L.chave);
+    else {
+      const ks = chavesDesc(L.descricao);
+      const sim = (x) => { const kx = chavesDesc(x.descricao); return !ks.length || !kx.length || kx[0] === ks[0] || (ks[2] && kx[2] === ks[2]) || kx[0].includes(ks[0]) || ks[0].includes(kx[0]); };
+      const achado = S.lancs.find((x) => !usados.has(x.id) && x.chave_dedup !== L.chave && !(x.chave_dedup && existentesArquivo.has(x.chave_dedup)) &&
+        x.tipo === L.tipo && centavos(x.valor) === centavos(L.valor) && x.data_movimento === L.data_movimento &&
+        (!L.parcela_total || !x.parcela_total || x.parcela_num === L.parcela_num) &&
+        (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id) && sim(x));
+      L.parecido = !!achado;
+      if (achado) { usados.add(achado.id); L.parecidoCom = achado.origem || (achado.lote_id ? 'importacao' : 'manual'); }
     }
     const incluirPadrao = e.incluirPadrao !== undefined ? e.incluirPadrao : !(L.dup || L.parecido || L.erro);
     L.incluir = L.erro || L.dup ? false : (e.incluir !== undefined ? e.incluir : incluirPadrao);
@@ -314,6 +329,12 @@ function renderPrevia(el) {
   const semCat = sel.filter((l) => (l.tipo === 'entrada' || l.tipo === 'saida') && !l.categoria_id).length;
   const dups = linhas.filter((l) => l.dup).length, parec = linhas.filter((l) => l.parecido).length, erros = linhas.filter((l) => l.erro).length;
   const futuras = sel.filter((l) => l.futura).length;
+  let sobrepoe = '';
+  if (cfg.destTipo === 'conta' && principais.length) {
+    const datas = principais.map((l) => l.data_movimento).sort();
+    const ja = S.lancs.filter((x) => x.conta_id === cfg.destId && x.lote_id && x.data_movimento >= datas[0] && x.data_movimento <= datas[datas.length - 1]).length;
+    if (ja) sobrepoe = `Esta conta já tem ${ja} lançamento(s) importado(s) entre ${fmtData(datas[0])} e ${fmtData(datas[datas.length - 1])}. Os iguais ficam de fora sozinhos; confira os marcados como “parecido”.`;
+  }
   const destino = cfg.destTipo === 'cartao' ? `💳 ${cartaoPorId(cfg.destId).nome} · fatura de ${fmtData(cfg.venc)}`
     : cfg.destTipo === 'conta' ? `🏦 ${contaPorId(cfg.destId).nome}` : 'Contas e cartões indicados no arquivo';
 
@@ -327,7 +348,9 @@ function renderPrevia(el) {
     conferencia = `<div class="aviso ${ok ? 'ok' : ''}">${ok ? '✅' : '⚠️'} Saldo final menos saldo inicial no PDF: <b>${brl(lido.variacaoDeclarada)}</b> · entradas menos saídas marcadas: <b>${brl(variacao)}</b>${ok ? '' : ' — confira se faltou ou sobrou alguma linha.'}</div>`;
   }
   if (lido.formato === 'pdf-ia') {
-    conferencia = `<p class="dica">🤖 Lido pela IA${lido.modelo ? ` (${esc(lido.modelo)})` : ''}. Confira os valores com o PDF antes de importar.</p>` + conferencia;
+    const em = lido.emenda;
+    const txtEmenda = em && em.partes > 1 ? ` PDF lido em ${em.partes} partes; nas viradas entre as partes ${em.repetidos} lançamento(s) repetido(s) foram descartados${em.recuperados ? ` e ${em.recuperados} que só a parte seguinte encontrou foram mantidos` : ''}.` : '';
+    conferencia = `<p class="dica">🤖 Lido pela IA${lido.modelo ? ` (${esc(lido.modelo)})` : ''}.${txtEmenda} Confira os valores com o PDF antes de importar.</p>` + conferencia;
   }
   for (const a of lido.alertas || []) conferencia += `<div class="aviso">⚠️ ${esc(a)}</div>`;
 
@@ -344,7 +367,8 @@ function renderPrevia(el) {
       ${conferencia}
       <ul class="lista-simples">
         ${dups ? `<li>🔁 ${dups} já importado(s) antes — ficam de fora.</li>` : ''}
-        ${parec ? `<li>⚠️ ${parec} parecido(s) com lançamento feito à mão — desmarcados; marque se não for o mesmo.</li>` : ''}
+        ${parec ? `<li>⚠️ ${parec} parecido(s) com lançamento que já existe ${cfg.destTipo === 'conta' ? 'nesta conta' : cfg.destTipo === 'cartao' ? 'neste cartão' : 'no app'} (mesma data e valor) — desmarcados; marque se não for o mesmo.</li>` : ''}
+        ${sobrepoe ? `<li>📆 ${sobrepoe}</li>` : ''}
         ${erros ? `<li>❌ ${erros} com erro (veja abaixo) — ficam de fora.</li>` : ''}
         ${futuras ? `<li>📅 ${futuras} parcela(s) futura(s) serão criadas nas próximas faturas.</li>` : ''}
         ${semCat ? `<li>🏷️ ${semCat} sem categoria (ficam como “A classificar”).</li>` : ''}
