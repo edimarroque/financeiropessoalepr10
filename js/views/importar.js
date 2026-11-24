@@ -1,7 +1,7 @@
 // Tela: Importar (fatura PDF, extrato OFX, CSV de banco e migração da planilha)
 import * as db from '../db.js';
 import { S, recarregarLancamentos, recarregarLotes, cartaoPorId, contaPorId } from '../state.js';
-import { hoje, fmtData, somarMeses, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
+import { hoje, fmtData, somarMeses, somarDias, faturaDoPagamento, fatura, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
 import { sugerir } from '../categorizar.js';
 import { chamarApi, paraBase64 } from '../servicos/api.js';
@@ -237,12 +237,15 @@ function preparar() {
       L.chave = comSeq(`app:${L.data_movimento}:${L.data_pagamento}:${L.tipo}:${centavos(L.valor)}:${normDesc(L.descricao)}:${L.parcela_num || ''}/${L.parcela_total || ''}`);
     } else if (cfg.destTipo === 'cartao') {
       const cartao = cartaoPorId(cfg.destId);
+      // a fatura já foi paga (pagamento importado do extrato ou feito na tela Cartões): os itens já entram como pagos
+      const pagSolto = pagamentoSemFatura(cartao, cfg.venc, lido.totalDeclarado);
+      const jaPaga = !!pagSolto || S.lancs.some((x) => x.tipo === 'pagamento_fatura' && x.cartao_id === cartao.id && x.fatura_venc === cfg.venc);
       const sinal = r.sinal !== undefined ? r.sinal : -(r.sinalBruto || 1); // CSV de fatura: positivo = compra
       const tipo = e.tipo || (sinal > 0 ? 'entrada' : 'saida');
       L = {
         ref: r.ref, data_movimento: r.data, data_pagamento: cfg.venc, tipo, descricao: r.descricao, valor: arred(r.valor),
         categoria_id: null, conta_id: null, conta_destino_id: null, cartao_id: cartao.id, metodo: 'Crédito',
-        parcela_num: r.parcela_num, parcela_total: r.parcela_total, situacao: cfg.paga ? 'pago' : 'pendente', erro: null,
+        parcela_num: r.parcela_num, parcela_total: r.parcela_total, situacao: cfg.paga || jaPaga ? 'pago' : 'pendente', erro: null,
       };
       L.chave = r.parcela_total
         ? `parc:${cartao.id}:${normDesc(r.descricao)}:${centavos(r.valor)}:${r.parcela_num}/${r.parcela_total}`
@@ -265,6 +268,8 @@ function preparar() {
         parcela_num: null, parcela_total: null,
         situacao: r.data > hoje() ? 'pendente' : (tipo === 'entrada' ? 'recebido' : 'pago'), erro: null,
       };
+      // pagamento de fatura: acha a fatura que ele quita (mesmo cartão, total = valor pago) para marcá-la como paga
+      if (tipo === 'pagamento_fatura' && cartaoPag) L.fatura_venc = faturaDoPagamento(cartaoPorId(cartaoPag), S.lancs, L.valor, r.data);
       L.chave = r.fitid ? `ofx:${conta.id}:${r.fitid}:${r.data}:${centavos(r.valor)}` : comSeq(`ct:${conta.id}:${r.data}:${centavos(r.valor)}:${normDesc(r.descricao)}`);
     }
 
@@ -404,6 +409,9 @@ function renderPrevia(el) {
             ${l.jaImportado ? `<small>Já está no app como “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
             ${l.parecido ? `<small>Mesma data e valor de “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
             ${l.erro ? `<small class="neg">${esc(l.erro)}</small>` : ''}
+            ${l.tipo === 'pagamento_fatura' && cfg.destTipo === 'conta' && !l.dup && !l.jaImportado ? (l.fatura_venc
+              ? `<small class="pos">✅ Quita a fatura de ${fmtData(l.fatura_venc)} (${brl(fatura(cartaoPorId(l.cartao_id), S.lancs, l.fatura_venc).total)}) — ela fica como paga.</small>`
+              : `<small class="neg">Não achei a fatura deste valor no cartão — depois de importar a fatura, ela já entra como paga se o valor bater.</small>`) : ''}
             ${cfg.destTipo === 'app' ? `<small>${esc(rotDestinoApp(l))}</small>` : ''}
           </div>
           <div class="imp-cat">
@@ -490,10 +498,15 @@ async function gravar(botao, el) {
         descricao: l.descricao, descricao_original: l.descricao, valor: l.valor, conta_id: l.conta_id || null, conta_destino_id: l.conta_destino_id || null,
         cartao_id: l.cartao_id || null, metodo: l.metodo || '', parcela_num: l.parcela_num || null, parcela_total: l.parcela_total || null,
         grupo_parcela: grupo, situacao: l.situacao, origem, lote_id: lote.id, chave_dedup: l.chave,
+        ...(l.tipo === 'pagamento_fatura' ? { fatura_venc: l.fatura_venc || null } : {}),
       };
     });
     try {
       await db.inserir('lancamentos', registros);
+      await quitarFaturas(registros);
+      // fatura importada depois do pagamento (que veio do extrato sem achar a fatura): liga os dois agora
+      const solto = cfg.destTipo === 'cartao' ? pagamentoSemFatura(cartaoPorId(cfg.destId), cfg.venc, imp.lido.totalDeclarado) : null;
+      if (solto) await db.atualizar('lancamentos', solto.id, { fatura_venc: cfg.venc });
     } catch (e) {
       await db.excluirOnde('lancamentos', 'lote_id', lote.id).catch(() => {});
       await db.excluir('lotes_importacao', lote.id).catch(() => {});
@@ -599,11 +612,32 @@ async function guardarOriginal(cfg, sel, lote) {
   toast(`📁 Arquivo guardado no Drive: ${mes} / ${tipo === 'fatura' ? 'Faturas_Cartao' : 'Extratos_Conta'}.`);
 }
 
+/** Pagamento do extrato que ainda não achou fatura e tem o valor do total desta fatura (pago até 20 dias antes / 45 depois do vencimento) */
+function pagamentoSemFatura(cartao, venc, total) {
+  if (!cartao || !venc || total == null) return null;
+  const ini = somarDias(venc, -20), fim = somarDias(venc, 45);
+  return S.lancs.find((x) => x.tipo === 'pagamento_fatura' && x.cartao_id === cartao.id && !x.fatura_venc &&
+    x.data_movimento >= ini && x.data_movimento <= fim && Math.abs(Number(x.valor) - Number(total)) <= 0.05) || null;
+}
+
+/** Marca como pagos os itens das faturas que estes pagamentos quitam (ou volta para pendente) */
+async function quitarFaturas(pagamentos, situacao = 'pago') {
+  const ids = [];
+  for (const p of pagamentos) {
+    if (p.tipo !== 'pagamento_fatura' || !p.fatura_venc || !p.cartao_id) continue;
+    ids.push(...S.lancs.filter((l) => l.cartao_id === p.cartao_id && l.data_pagamento === p.fatura_venc && (l.tipo === 'saida' || l.tipo === 'entrada') &&
+      l.situacao !== situacao).map((l) => l.id));
+  }
+  if (ids.length) await db.atualizarVarios('lancamentos', ids, { situacao });
+}
+
 export async function desfazer(lote, botao, aoFim) {
   const ok = await confirmar('Remover importação', `Apagar os <b>${lote.quantidade}</b> lançamento(s) desta importação?<br><small>${esc(lote.descricao)}</small>`,
     [{ valor: 'sim', rotulo: 'Remover importação', classe: 'btn-perigo' }]);
   if (!ok) return;
   await comCarregando(botao, async () => {
+    // pagamentos de fatura desta importação: a fatura volta a ficar pendente
+    await quitarFaturas(S.lancs.filter((l) => l.lote_id === lote.id && l.tipo === 'pagamento_fatura'), 'pendente');
     await db.excluirOnde('lancamentos', 'lote_id', lote.id);
     await db.excluir('lotes_importacao', lote.id);
     await Promise.all([recarregarLancamentos(), recarregarLotes()]);

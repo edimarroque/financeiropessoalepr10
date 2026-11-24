@@ -124,7 +124,7 @@ function pagarFatura(cartao, venc, aoSalvar) {
           tipo: 'pagamento_fatura', descricao: `Pagamento fatura ${cartao.nome} (venc. ${fmtData(venc)})`,
           valor: arred(valor), data_movimento: f.data.value, data_pagamento: f.data.value,
           conta_id: f.conta.value, cartao_id: cartao.id, metodo: 'Transferência', situacao: 'pago',
-          chave_dedup: `pgto:${cartao.id}:${venc}`,
+          chave_dedup: `pgto:${cartao.id}:${venc}`, fatura_venc: venc,
         }]);
         await db.atualizarVarios('lancamentos', pendentes.map((l) => l.id), { situacao: 'pago' });
         await recarregarLancamentos();

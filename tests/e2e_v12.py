@@ -109,7 +109,7 @@ def run(page, shots, desktop):
 
     # ---- Novidades e Como usar ----
     page.goto(BASE + '#/novidades')
-    expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.4')
+    expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.5')
     page.screenshot(path=f'{shots}_novidades.png', full_page=True)
     page.goto(BASE + '#/ajuda')
     expect(page.locator('.passo')).to_have_count(5)

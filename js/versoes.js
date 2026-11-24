@@ -1,6 +1,18 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.5', data: '2026-11-24', titulo: 'Pagamento de fatura no extrato quita a fatura do cartão',
+    novidades: [
+      '💳 Pagamento de fatura importado do extrato agora fica ligado à fatura que ele paga (mesmo cartão e valor igual ao total da fatura). A fatura passa a “✓ paga” sozinha na tela Cartões.',
+      '👀 Na prévia da importação, o pagamento mostra “Quita a fatura de 15/11/2026 (R$ …)”. Se nenhuma fatura bater, avisa; quando a fatura for importada depois, ela já entra como paga.',
+      '↩️ Remover a importação ou excluir o pagamento faz a fatura voltar a ficar pendente.',
+      '🔗 Ao abrir um pagamento de fatura, aparece qual fatura ele quita.',
+    ],
+    correcoes: [
+      'Fatura do Cartão Itau de 15/11/2026 aparecia como “vencida” mesmo com o pagamento de 22/11 importado do extrato. Os pagamentos antigos também foram ligados às faturas.',
+    ],
+  },
+  {
     versao: '1.6.4', data: '2026-11-24', titulo: 'Descrição original guardada e conferência de repetidos por ela',
     novidades: [
       '📄 Cada lançamento importado guarda a descrição exatamente como veio no extrato/fatura, num campo separado (“Como veio no extrato/fatura”, aparece ao editar o lançamento). Você pode mudar a descrição à vontade sem atrapalhar a conferência.',

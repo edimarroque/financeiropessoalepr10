@@ -34,6 +34,11 @@ export function somarMeses(iso, n) {
   return montar(y, m + n, d);
 }
 
+export function somarDias(iso, n) {
+  const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export function mesDe(iso) { return iso.slice(0, 7); }          // 'AAAA-MM'
 export function somarMesRef(ref, n) { return somarMeses(ref + '-01', n).slice(0, 7); }
 export function nomeMes(ref) { const { y, m } = partes(ref + '-01'); return `${MESES[m - 1]} ${y}`; }
@@ -170,6 +175,21 @@ export function fatura(cartao, lancs, venc) {
     total,
     paga: itens.length > 0 && pendentes.length === 0,
   };
+}
+
+/**
+ * Qual fatura um pagamento quita (devolve o vencimento ou null).
+ * 1º: fatura com total igual ao valor pago (±5 centavos), vencida até 45 dias antes ou até 20 dias depois do pagamento;
+ * 2º: a fatura ainda pendente com vencimento mais próximo nessa janela.
+ */
+export function faturaDoPagamento(cartao, lancs, valor, data) {
+  if (!cartao || !data) return null;
+  const ini = somarDias(data, -45), fim = somarDias(data, 20);
+  const vencs = vencimentosDoCartao(cartao, lancs).filter((v) => v >= ini && v <= fim);
+  const dist = (v) => Math.abs(new Date(v) - new Date(data));
+  const fats = vencs.map((v) => fatura(cartao, lancs, v)).filter((f) => f.itens.length).sort((a, b) => dist(a.venc) - dist(b.venc));
+  const igual = fats.filter((f) => Math.abs(f.total - Number(valor)) <= 0.05);
+  return (igual.find((f) => !f.paga) || igual[0] || fats.find((f) => !f.paga))?.venc || null;
 }
 
 /** Lista de vencimentos que têm lançamentos no cartão, do mais recente ao mais antigo */

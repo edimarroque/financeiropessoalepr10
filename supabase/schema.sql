@@ -691,3 +691,8 @@ end $$;
 -- v1.6.4: descrição exatamente como veio no extrato/fatura (a "descricao" pode ser editada; duplicados usam a original)
 alter table public.lancamentos add column if not exists descricao_original text;
 update public.lancamentos set descricao_original = descricao where descricao_original is null and lote_id is not null;
+
+-- v1.6.5: pagamento de fatura ligado à fatura que quita (importado do extrato ou feito na tela Cartões)
+alter table public.lancamentos add column if not exists fatura_venc date;
+comment on column public.lancamentos.fatura_venc is 'Só em pagamento_fatura: vencimento da fatura que este pagamento quita';
+-- (na migração também foram ligados os pagamentos antigos: pela chave pgto: ou pelo valor = total da fatura, e os itens marcados como pagos)

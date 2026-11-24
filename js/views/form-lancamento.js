@@ -393,13 +393,14 @@ function abrirEdicaoPagamentoFatura(ed, aoSalvar) {
   const c = cartaoPorId(ed.cartao_id);
   modal('Pagamento de fatura', `
     <p>Pagamento da fatura do <b>${esc(c ? c.nome : 'cartão')}</b> de ${brl(ed.valor)} em ${fmtData(ed.data_pagamento)}.</p>
+    ${ed.fatura_venc ? `<p>✅ Quita a fatura com vencimento em <b>${fmtData(ed.fatura_venc)}</b>.</p>` : '<p class="dica">⚠️ Não está ligado a nenhuma fatura do cartão (o valor não bateu com nenhuma fatura).</p>'}
     <p class="dica">Para corrigir, exclua este pagamento e registre de novo pela tela Cartões. Ao excluir, os itens da fatura voltam a ficar pendentes.</p>
     <div class="acoes"><span class="espaco"></span><button class="btn btn-perigo" data-excluir>Excluir pagamento</button></div>`, (el, fechar) => {
     const b = el.querySelector('[data-excluir]');
     b.onclick = async () => {
       if (!(await confirmar('Excluir pagamento', 'Os itens desta fatura voltarão a ficar pendentes.', [{ valor: 'sim', rotulo: 'Excluir', classe: 'btn-perigo' }]))) return;
       await comCarregando(b, async () => {
-        const ref = ed.chave_dedup && ed.chave_dedup.startsWith('pgto:') ? ed.chave_dedup.split(':')[2] : null;
+        const ref = ed.fatura_venc || (ed.chave_dedup && ed.chave_dedup.startsWith('pgto:') ? ed.chave_dedup.split(':')[2] : null);
         if (ref) {
           const itens = S.lancs.filter((l) => l.cartao_id === ed.cartao_id && l.data_pagamento === ref && l.tipo !== 'pagamento_fatura').map((l) => l.id);
           await db.atualizarVarios('lancamentos', itens, { situacao: 'pendente' });
