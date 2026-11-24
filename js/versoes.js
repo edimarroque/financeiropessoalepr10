@@ -1,6 +1,19 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.4', data: '2026-11-24', titulo: 'Descrição original guardada e conferência de repetidos por ela',
+    novidades: [
+      '📄 Cada lançamento importado guarda a descrição exatamente como veio no extrato/fatura, num campo separado (“Como veio no extrato/fatura”, aparece ao editar o lançamento). Você pode mudar a descrição à vontade sem atrapalhar a conferência.',
+      '🔁 A conferência de repetidos usa sempre a descrição original. Os lançamentos que já existem vêm desmarcados na prévia, com “Já está no app como …” mostrando como foi gravado.',
+      '🧠 Mesmo lançamento escrito de outro jeito pelo banco (ex.: “PIX TRANSF EDIMAR” × “PIX ENVIADO EDIMAR PEREIRA ROQUE”, “REMUNERACAO/SALARIO” × “SALÁRIO STEFANINI…”) é reconhecido pela data, valor e nome da pessoa/loja.',
+      '📊 Resumo da prévia: quantos estão no arquivo, quantos são novos, já importados e parecidos.',
+      '🔎 A busca em Lançamentos também procura na descrição original.',
+    ],
+    correcoes: [
+      'Ao importar o restante de um extrato do Itaú em outro formato de PDF, lançamentos já importados vinham marcados como novos (salário e PIX de 19/11).',
+    ],
+  },
+  {
     versao: '1.6.3', data: '2026-11-23', titulo: 'PDF grande sem erro 504 e telas mais compactas',
     novidades: [
       '📄 PDF grande (mais de 3 páginas) é lido em partes de até 4 páginas, uma de cada vez, com aviso “lendo a parte 2 de 4…”. Você envia o PDF inteiro; não precisa mais dividir o arquivo.',

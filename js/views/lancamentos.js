@@ -46,7 +46,7 @@ function passaFiltro(l) {
   if (filtros.situacao && l.situacao !== filtros.situacao) return false;
   if (filtros.texto) {
     const t = filtros.texto.toLowerCase();
-    const alvo = `${l.descricao} ${nomeCategoria(l.categoria_id)} ${l.valor} ${(l.tags || []).map((t) => '#' + t).join(' ')}`.toLowerCase();
+    const alvo = `${l.descricao} ${l.descricao_original || ''} ${nomeCategoria(l.categoria_id)} ${l.valor} ${(l.tags || []).map((t) => '#' + t).join(' ')}`.toLowerCase();
     if (!alvo.includes(t)) return false;
   }
   return true;

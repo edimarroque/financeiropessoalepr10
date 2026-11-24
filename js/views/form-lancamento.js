@@ -124,6 +124,7 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
 
       <label>Descrição
         <input name="descricao" maxlength="200" placeholder="Ex.: Supermercado BH" value="${esc(ed ? ed.descricao : '')}">
+        ${ed?.descricao_original ? `<small class="dica" data-desc-original>📄 Como veio no extrato/fatura: <b>${esc(ed.descricao_original)}</b> — pode mudar a descrição à vontade; o app usa esta original para reconhecer o lançamento em novas importações.</small>` : ''}
       </label>
 
       <div data-bloco="normal">

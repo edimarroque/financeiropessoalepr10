@@ -72,7 +72,7 @@ with sync_playwright() as p:
     estado['variante'] = True; estado['falhou504'] = True
     importar_pdf(page)
     expect(page.locator('.resumo-linha')).to_contain_text('0 de 6')
-    expect(page.locator('#tela')).to_contain_text('1 parecido(s) com lançamento que já existe nesta conta')
+    expect(page.locator('#tela')).to_contain_text('0 novo(s) · 6 já importado(s)')  # v1.6.4: MERCADO × SUPERMERCADO MERCADO = mesmo
     expect(page.locator('#tela')).to_contain_text('Esta conta já tem 6 lançamento(s) importado(s)')
     page.click('[data-voltar]')
 
@@ -121,7 +121,7 @@ with sync_playwright() as p:
     # ---- Novidades compacto ----
     ir(page, 'novidades')
     v = page.locator('details.versao.atual')
-    expect(v.locator('.versao-tag')).to_have_text('v1.6.3')
+    expect(v.locator('.versao-tag')).to_have_text('v1.6.4')
     expect(page.locator('details.versao:not(.atual)').first.locator('h3').first).to_be_hidden()
     page.locator('details.versao').nth(1).locator('summary').click()
     expect(page.locator('details.versao').nth(1).locator('h3').first).to_be_visible()

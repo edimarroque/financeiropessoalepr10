@@ -687,3 +687,7 @@ begin
 end $$;
 -- Depois de rodar: gravar o segredo do servidor (o MESMO valor da variável APP_SECRET da Vercel):
 -- insert into privado.config (chave, valor) values ('app_secret', '<valor>') on conflict (chave) do update set valor = excluded.valor;
+
+-- v1.6.4: descrição exatamente como veio no extrato/fatura (a "descricao" pode ser editada; duplicados usam a original)
+alter table public.lancamentos add column if not exists descricao_original text;
+update public.lancamentos set descricao_original = descricao where descricao_original is null and lote_id is not null;

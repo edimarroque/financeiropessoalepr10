@@ -5,7 +5,7 @@ import { hoje, fmtData, somarMeses, vencimentosDoCartao, vencimentoAtual, fecham
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
 import { sugerir } from '../categorizar.js';
 import { chamarApi, paraBase64 } from '../servicos/api.js';
-import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, lerPdfComIA, decodificar, normDesc, chavesDesc } from '../import/parsers.js';
+import { lerCSV, lerOFX, textoDoPDF, itensDaFatura, lerPdfComIA, decodificar, normDesc, chavesDesc, mesmaDescricao } from '../import/parsers.js';
 
 // estado da importação em andamento
 let imp = null;
@@ -279,16 +279,26 @@ function preparar() {
     L.dup = existentes.has(L.chave);
     if (L.dup) existentesArquivo.add(L.chave);
     else {
-      const ks = chavesDesc(L.descricao);
-      const sim = (x) => { const kx = chavesDesc(x.descricao); return !ks.length || !kx.length || kx[0] === ks[0] || (ks[2] && kx[2] === ks[2]) || kx[0].includes(ks[0]) || ks[0].includes(kx[0]); };
-      const achado = S.lancs.find((x) => !usados.has(x.id) && x.chave_dedup !== L.chave && !(x.chave_dedup && existentesArquivo.has(x.chave_dedup)) &&
-        x.tipo === L.tipo && centavos(x.valor) === centavos(L.valor) && x.data_movimento === L.data_movimento &&
+      // a conferência usa SEMPRE a descrição original (como veio do banco), nunca a descrição editada
+      const orig = (x) => x.descricao_original || x.descricao;
+      const sinal = (t) => (t === 'entrada' ? 1 : -1);
+      const candidatos = S.lancs.filter((x) => !usados.has(x.id) && x.chave_dedup !== L.chave && !(x.chave_dedup && existentesArquivo.has(x.chave_dedup)) &&
+        (cfg.destTipo === 'app' ? x.tipo === L.tipo : sinal(x.tipo) === sinal(L.tipo)) &&
+        centavos(x.valor) === centavos(L.valor) && x.data_movimento === L.data_movimento &&
         (!L.parcela_total || !x.parcela_total || x.parcela_num === L.parcela_num) &&
-        (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id) && sim(x));
-      L.parecido = !!achado;
-      if (achado) { usados.add(achado.id); L.parecidoCom = achado.origem || (achado.lote_id ? 'importacao' : 'manual'); }
+        (cfg.destTipo === 'conta' ? x.conta_id === L.conta_id && (L.tipo !== 'pagamento_fatura' || !x.cartao_id || x.tipo === 'pagamento_fatura')
+          : (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id)));
+      const ks = chavesDesc(L.descricao);
+      const sim = (x) => { const kx = chavesDesc(orig(x)); return !ks.length || !kx.length || kx[0] === ks[0] || (ks[2] && kx[2] === ks[2]) || kx[0].includes(ks[0]) || ks[0].includes(kx[0]); };
+      // mesma data + valor + nome reconhecido = já importado (com o texto escrito de outro jeito)
+      const forte = candidatos.find((x) => mesmaDescricao(orig(x), L.descricao));
+      // extrato/fatura: mesma data e valor na mesma conta/cartão, mesmo com nome diferente = parecido (confira)
+      const achado = forte || (cfg.destTipo === 'app' ? candidatos.find(sim) : candidatos[0]);
+      L.jaImportado = !!forte;
+      L.parecido = !!achado && !forte;
+      if (achado) { usados.add(achado.id); L.existente = orig(achado); L.parecidoCom = achado.origem || (achado.lote_id ? 'importacao' : 'manual'); }
     }
-    const incluirPadrao = e.incluirPadrao !== undefined ? e.incluirPadrao : !(L.dup || L.parecido || L.erro);
+    const incluirPadrao = e.incluirPadrao !== undefined ? e.incluirPadrao : !(L.dup || L.jaImportado || L.parecido || L.erro);
     L.incluir = L.erro || L.dup ? false : (e.incluir !== undefined ? e.incluir : incluirPadrao);
     linhas.push(L);
 
@@ -327,13 +337,13 @@ function renderPrevia(el) {
   const totalArquivo = arred(principais.filter((l) => l.incluir || l.dup).reduce((s, l) => s + (l.tipo === 'entrada' ? -1 : 1) * l.valor, 0));
   const saidas = tot(sel, (l) => l.tipo === 'saida'), entradas = tot(sel, (l) => l.tipo === 'entrada'), pagFat = tot(sel, (l) => l.tipo === 'pagamento_fatura');
   const semCat = sel.filter((l) => (l.tipo === 'entrada' || l.tipo === 'saida') && !l.categoria_id).length;
-  const dups = linhas.filter((l) => l.dup).length, parec = linhas.filter((l) => l.parecido).length, erros = linhas.filter((l) => l.erro).length;
+  const dups = linhas.filter((l) => l.dup || l.jaImportado).length, parec = linhas.filter((l) => l.parecido).length, erros = linhas.filter((l) => l.erro).length;
   const futuras = sel.filter((l) => l.futura).length;
   let sobrepoe = '';
   if (cfg.destTipo === 'conta' && principais.length) {
     const datas = principais.map((l) => l.data_movimento).sort();
     const ja = S.lancs.filter((x) => x.conta_id === cfg.destId && x.lote_id && x.data_movimento >= datas[0] && x.data_movimento <= datas[datas.length - 1]).length;
-    if (ja) sobrepoe = `Esta conta já tem ${ja} lançamento(s) importado(s) entre ${fmtData(datas[0])} e ${fmtData(datas[datas.length - 1])}. Os iguais ficam de fora sozinhos; confira os marcados como “parecido”.`;
+    if (ja) sobrepoe = `Esta conta já tem ${ja} lançamento(s) importado(s) entre ${fmtData(datas[0])} e ${fmtData(datas[datas.length - 1])}. Os que já existem vêm desmarcados; confira os marcados como “parecido”.`;
   }
   const destino = cfg.destTipo === 'cartao' ? `💳 ${cartaoPorId(cfg.destId).nome} · fatura de ${fmtData(cfg.venc)}`
     : cfg.destTipo === 'conta' ? `🏦 ${contaPorId(cfg.destId).nome}` : 'Contas e cartões indicados no arquivo';
@@ -366,7 +376,8 @@ function renderPrevia(el) {
       </div>
       ${conferencia}
       <ul class="lista-simples">
-        ${dups ? `<li>🔁 ${dups} já importado(s) antes — ficam de fora.</li>` : ''}
+        <li>📄 ${principais.length} no arquivo: <b>${principais.filter((l) => !l.dup && !l.jaImportado && !l.parecido && !l.erro).length} novo(s)</b>${dups ? ` · ${dups} já importado(s)` : ''}${parec ? ` · ${parec} parecido(s)` : ''}. A conferência usa a descrição original do banco.</li>
+        ${dups ? `<li>🔁 ${dups} já importado(s) antes — vêm desmarcados (o app reconhece pela data, valor e nome original, mesmo escrito de outro jeito).</li>` : ''}
         ${parec ? `<li>⚠️ ${parec} parecido(s) com lançamento que já existe ${cfg.destTipo === 'conta' ? 'nesta conta' : cfg.destTipo === 'cartao' ? 'neste cartão' : 'no app'} (mesma data e valor) — desmarcados; marque se não for o mesmo.</li>` : ''}
         ${sobrepoe ? `<li>📆 ${sobrepoe}</li>` : ''}
         ${erros ? `<li>❌ ${erros} com erro (veja abaixo) — ficam de fora.</li>` : ''}
@@ -389,7 +400,9 @@ function renderPrevia(el) {
           <div class="imp-data">${fmtData(l.data_movimento)}${l.data_pagamento !== l.data_movimento ? `<small>paga ${fmtData(l.data_pagamento)}</small>` : ''}</div>
           <div class="imp-desc">
             <div>${esc(l.descricao || '(sem descrição)')} ${l.parcela_total ? `<span class="pill">${l.parcela_num}/${l.parcela_total}</span>` : ''}
-              ${l.futura ? '<span class="pill">futura</span>' : ''}${l.dup ? '<span class="pill pill-cinza">já importado</span>' : ''}${l.parecido ? '<span class="pill pill-amarela">parecido</span>' : ''}</div>
+              ${l.futura ? '<span class="pill">futura</span>' : ''}${l.dup || l.jaImportado ? '<span class="pill pill-cinza">já importado</span>' : ''}${l.parecido ? '<span class="pill pill-amarela">parecido</span>' : ''}</div>
+            ${l.jaImportado ? `<small>Já está no app como “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
+            ${l.parecido ? `<small>Mesma data e valor de “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
             ${l.erro ? `<small class="neg">${esc(l.erro)}</small>` : ''}
             ${cfg.destTipo === 'app' ? `<small>${esc(rotDestinoApp(l))}</small>` : ''}
           </div>
@@ -474,7 +487,7 @@ async function gravar(botao, el) {
       }
       return {
         data_movimento: l.data_movimento, data_pagamento: l.data_pagamento, tipo: l.tipo, categoria_id: l.categoria_id || null,
-        descricao: l.descricao, valor: l.valor, conta_id: l.conta_id || null, conta_destino_id: l.conta_destino_id || null,
+        descricao: l.descricao, descricao_original: l.descricao, valor: l.valor, conta_id: l.conta_id || null, conta_destino_id: l.conta_destino_id || null,
         cartao_id: l.cartao_id || null, metodo: l.metodo || '', parcela_num: l.parcela_num || null, parcela_total: l.parcela_total || null,
         grupo_parcela: grupo, situacao: l.situacao, origem, lote_id: lote.id, chave_dedup: l.chave,
       };

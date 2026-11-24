@@ -25,7 +25,8 @@ HTML + CSS + JS (módulos ES) estáticos. Supabase JS via esm.sh; pdf.js servido
 - `js/calc.js` regras puras (datas 'AAAA-MM-DD', fatura por fechamento/vencimento, parcelas, saldos, resumos)
 - `js/state.js` dados em memória (`S`), período `S.ano`/`S.mes` (0 = ano todo)
 - `js/views/*.js` telas; `js/components/*` período, calendário, gráficos SVG, personalização
-- `js/import/parsers.js` CSV/OFX/PDF; chave `chave_dedup` evita duplicados; `lote_id` permite desfazer
+- `js/import/parsers.js` CSV/OFX/PDF; chave `chave_dedup` evita duplicados; `lote_id` permite desfazer.
+  `descricao_original` = texto exato do banco (a `descricao` é editável); a conferência de repetidos usa SEMPRE a original (`mesmaDescricao`)
 - Mês de um lançamento = **data de pagamento** (no cartão = vencimento da fatura)
 - Tipos: entrada, saida, transferencia, pagamento_fatura (os dois últimos não contam como receita/despesa)
 
@@ -47,7 +48,7 @@ python3 -m http.server 8765   # servir uma cópia do site com importmap apontand
 node tests/calc.test.mjs
 node tests/api.test.mjs
 python3 tests/e2e.py && python3 tests/e2e_import.py && python3 tests/e2e_v12.py && python3 tests/e2e_sug.py && python3 tests/e2e_ia.py
-python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py && python3 tests/e2e_v163.py
+python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py && python3 tests/e2e_v163.py && python3 tests/e2e_v164.py
 node tests/pdf-partes.test.mjs && node tests/ler-pdf.test.mjs
 ```
 PDF com mais de 3 páginas é lido em partes de 4 páginas (1 repetida na virada) — `dividirPaginas`/`emendarPartes` em `js/import/parsers.js`.

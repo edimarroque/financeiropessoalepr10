@@ -27,6 +27,20 @@ export function chavesDesc(s) {
   return [n, ps.slice(0, 2).join(' '), ps[0] || ''].filter(Boolean);
 }
 
+// Palavras que todo banco usa e não identificam quem/onde (não servem para dizer que duas descrições são a mesma coisa)
+const GENERICAS = new Set([...PREFIXOS, 'QRS', 'TRANSFERENCIA', 'ENVIADO', 'ENVIADA', 'RECEBIDO', 'RECEBIDA', 'PAGAMENTO', 'PAGO', 'PAGA',
+  'CREDITO', 'BOLETO', 'TED', 'DOC', 'SAQUE', 'LTDA', 'EIRELI', 'DE', 'DA', 'DO', 'DOS', 'DAS', 'EM', 'NO', 'NA', 'SA', 'ME', 'EPP', 'BANCO', 'CONTA']);
+/** Palavras que identificam o lançamento (nome da pessoa, loja, "SALARIO"...) */
+export function palavrasDesc(s) {
+  return normDesc(s).split(' ').filter((p) => p.length > 2 && !GENERICAS.has(p));
+}
+/** Duas descrições do mesmo lançamento escritas de jeitos diferentes (ex.: "PIX TRANSF EDIMAR" × "PIX ENVIADO EDIMAR PEREIRA ROQUE") */
+export function mesmaDescricao(a, b) {
+  if (normDesc(a) === normDesc(b)) return true;
+  const pb = new Set(palavrasDesc(b));
+  return palavrasDesc(a).some((p) => pb.has(p) || [...pb].some((q) => q.length >= 4 && p.length >= 4 && (q.startsWith(p) || p.startsWith(q))));
+}
+
 /** "1.234,56" | "-1234.56" | "R$ 12,00" | "12,00-" → número com sinal */
 export function lerValor(txt) {
   let s = String(txt ?? '').trim();
