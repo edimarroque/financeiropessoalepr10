@@ -49,7 +49,7 @@ python3 -m http.server 8765   # servir uma cópia do site com importmap apontand
 node tests/calc.test.mjs
 node tests/api.test.mjs
 python3 tests/e2e.py && python3 tests/e2e_import.py && python3 tests/e2e_v12.py && python3 tests/e2e_sug.py && python3 tests/e2e_ia.py
-python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py && python3 tests/e2e_v163.py && python3 tests/e2e_v164.py && python3 tests/e2e_v165.py
+python3 tests/e2e_v14.py && python3 tests/e2e_v15.py && python3 tests/e2e_v16.py && python3 tests/e2e_v163.py && python3 tests/e2e_v164.py && python3 tests/e2e_v165.py && python3 tests/e2e_layout.py
 node tests/pdf-partes.test.mjs && node tests/ler-pdf.test.mjs
 ```
 PDF com mais de 3 páginas é lido em partes de 4 páginas (1 repetida na virada) — `dividirPaginas`/`emendarPartes` em `js/import/parsers.js`.

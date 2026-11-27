@@ -1,6 +1,19 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.6', data: '2026-11-27', titulo: 'Layout do computador arrumado',
+    novidades: [
+      '🖥️ No computador, as telas usam a largura toda ao lado do menu (até ~1440 px). Cartões e Relatório não ficam mais presos numa coluna estreita no meio.',
+      '📌 Menu lateral: só a lista de telas rola; o rodapé com seu nome, o selo da versão e o botão Sair fica sempre inteiro, mesmo com zoom de 125% ou tela baixa.',
+      '🧪 Teste visual automático antes de publicar: prints de todas as telas em 1280, 1440 e 1920 px e com zoom de 125%, apontando qualquer coisa que saia da tela ou do quadro.',
+    ],
+    correcoes: [
+      'Em Cartões, as caixinhas “Fatura atual / Disponível / No ano” saíam do quadro com zoom ou valores grandes; agora quebram de linha.',
+      'Títulos do menu (“Gestão”, “Ajuda”) e selo da versão cortados nas bordas.',
+      'Cadastros, Dashboards e Patrimônio passavam da borda direita da tela em janelas de 1280 px (abas e indicadores agora se ajustam).',
+    ],
+  },
+  {
     versao: '1.6.5', data: '2026-11-24', titulo: 'Pagamento de fatura no extrato quita a fatura do cartão',
     novidades: [
       '💳 Pagamento de fatura importado do extrato agora fica ligado à fatura que ele paga (mesmo cartão e valor igual ao total da fatura). A fatura passa a “✓ paga” sozinha na tela Cartões.',
@@ -173,5 +186,6 @@ export const VERSOES = [
 ];
 
 export const PROXIMAS = [
+  '⏭️ v1.6.7: sinal do total na importação, filtro “Sem categoria” e por data, PIX entre contas próprias, pagamento de fatura com valor diferente, saldo do banco automático.',
   '💡 Continue anotando ideias no campo “Sugestões de melhorias” acima — cada item vira uma versão nova.',
 ];
