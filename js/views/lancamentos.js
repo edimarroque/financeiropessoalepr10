@@ -6,7 +6,9 @@ import { periodoHTML, ligarPeriodo, noPeriodo, rotuloPeriodo } from '../componen
 import { esc, brl, toast } from '../ui.js';
 import { abrirFormLancamento } from './form-lancamento.js';
 
-const filtros = { tipo: '', categoria: '', origem: '', situacao: '', texto: '', tag: '', lote: '' };
+const filtros = { tipo: '', categoria: '', origem: '', situacao: '', texto: '', tag: '', lote: '', de: '', ate: '' };
+// v1.6.7: categoria especial “Sem categoria” (receitas e despesas que ainda não foram classificadas)
+export const SEM_CATEGORIA = '__sem__';
 
 // vindo de Importar: mostra só os lançamentos daquela importação (em qualquer mês)
 window.addEventListener('filtro-lote', (e) => {
@@ -34,10 +36,15 @@ function rotuloTipo(l) {
 
 function passaFiltro(l) {
   if (filtros.lote) return l.lote_id === filtros.lote;
-  if (!noPeriodo(l.data_pagamento)) return false;
+  // v1.6.7: com data “de/até” escolhida, vale o intervalo (pela data da compra/movimento) em vez do mês do topo
+  if (filtros.de || filtros.ate) {
+    if (filtros.de && l.data_movimento < filtros.de) return false;
+    if (filtros.ate && l.data_movimento > filtros.ate) return false;
+  } else if (!noPeriodo(l.data_pagamento)) return false;
   if (filtros.tag && !(l.tags || []).includes(filtros.tag)) return false;
   if (filtros.tipo && l.tipo !== filtros.tipo) return false;
-  if (filtros.categoria && l.categoria_id !== filtros.categoria) return false;
+  if (filtros.categoria === SEM_CATEGORIA) { if (l.categoria_id || (l.tipo !== 'entrada' && l.tipo !== 'saida')) return false; }
+  else if (filtros.categoria && l.categoria_id !== filtros.categoria) return false;
   if (filtros.origem) {
     const [q, id] = filtros.origem.split(':');
     if (q === 'conta' && l.conta_id !== id && l.conta_destino_id !== id) return false;
@@ -72,6 +79,10 @@ export function render(el) {
   const optCat = S.categorias.slice().sort((a, b) => a.tipo.localeCompare(b.tipo) || a.nome.localeCompare(b.nome))
     .map((c) => `<option value="${c.id}" ${filtros.categoria === c.id ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.nome)}</option>`).join('');
   const todasTags = [...new Set(S.lancs.flatMap((l) => l.tags || []))].sort();
+  const semCat = S.lancs.filter((l) => (l.tipo === 'entrada' || l.tipo === 'saida') && !l.categoria_id &&
+    (filtros.de || filtros.ate ? (!filtros.de || l.data_movimento >= filtros.de) && (!filtros.ate || l.data_movimento <= filtros.ate) : noPeriodo(l.data_pagamento))).length;
+  const comDatas = filtros.de || filtros.ate;
+  const txtDatas = comDatas ? (filtros.de && filtros.ate ? `de ${fmtData(filtros.de)} a ${fmtData(filtros.ate)}` : filtros.de ? `a partir de ${fmtData(filtros.de)}` : `até ${fmtData(filtros.ate)}`) : '';
   const optOrig = [
     ...S.contas.map((c) => [`conta:${c.id}`, `🏦 ${c.nome}`]),
     ...S.cartoes.map((c) => [`cartao:${c.id}`, `💳 ${c.nome}`]),
@@ -79,7 +90,7 @@ export function render(el) {
 
   el.innerHTML = `
     <div class="topo-tela">
-      <h1>Lançamentos <small class="sub-h1">${esc(rotuloPeriodo())}</small></h1>
+      <h1>Lançamentos <small class="sub-h1">${esc(comDatas ? txtDatas : rotuloPeriodo())}</small></h1>
       <div class="topo-acoes">${periodoHTML()}
       <button class="btn btn-primario" data-novo>+ Novo</button></div>
     </div>
@@ -92,7 +103,10 @@ export function render(el) {
           ${[['saida', 'Despesas'], ['entrada', 'Receitas'], ['transferencia', 'Transferências'], ['pagamento_fatura', 'Pagamentos de fatura']]
             .map(([v, r]) => `<option value="${v}" ${filtros.tipo === v ? 'selected' : ''}>${r}</option>`).join('')}
         </select>
-        <select data-f="categoria"><option value="">Todas as categorias</option>${optCat}</select>
+        <select data-f="categoria"><option value="">Todas as categorias</option>
+          <option value="${SEM_CATEGORIA}" ${filtros.categoria === SEM_CATEGORIA ? 'selected' : ''}>❔ Sem categoria (${semCat})</option>${optCat}</select>
+        <label class="filtro-data">De <input type="date" data-f="de" value="${esc(filtros.de)}" ${filtros.ate ? `max="${esc(filtros.ate)}"` : ''}></label>
+        <label class="filtro-data">Até <input type="date" data-f="ate" value="${esc(filtros.ate)}" ${filtros.de ? `min="${esc(filtros.de)}"` : ''}></label>
         <select data-f="origem"><option value="">Todas as contas e cartões</option>${optOrig}</select>
         <select data-f="situacao"><option value="">Qualquer situação</option>
           ${[['pago', 'Pago'], ['recebido', 'Recebido'], ['pendente', 'Pendente']].map(([v, r]) => `<option value="${v}" ${filtros.situacao === v ? 'selected' : ''}>${r}</option>`).join('')}
@@ -102,6 +116,8 @@ export function render(el) {
       </div>
     </details>
 
+    ${comDatas && !filtros.lote ? `<div class="aviso">📅 Mostrando ${esc(txtDatas)} (pela data da compra/movimento), sem olhar o mês escolhido no topo. <button class="btn-link" data-limpar-datas>Voltar para o mês</button></div>` : ''}
+    ${filtros.categoria === SEM_CATEGORIA ? `<div class="aviso">❔ Receitas e despesas sem categoria. Toque num lançamento para escolher a categoria, mudar a descrição ou pôr tags — ele sai desta lista ao salvar.</div>` : ''}
     ${filtros.lote ? `<div class="aviso">📥 Mostrando só os lançamentos de uma importação (todos os meses). <button class="btn-link" data-limpar>Mostrar todos</button></div>` : ''}
     <div class="resumo-linha">
       <div><small>Receitas</small><b class="pos">${brl(ent)}</b></div>
@@ -112,7 +128,7 @@ export function render(el) {
 
     ${lista.length === 0 ? `
       <div class="vazio">
-        <p>Nenhum lançamento em ${esc(rotuloPeriodo())}${Object.values(filtros).some(Boolean) ? ' com esses filtros' : ''}.</p>
+        <p>Nenhum lançamento ${comDatas ? esc(txtDatas) : 'em ' + esc(rotuloPeriodo())}${Object.values(filtros).some(Boolean) ? ' com esses filtros' : ''}.</p>
         <button class="btn btn-primario" data-novo>Lançar agora</button>
       </div>` : ''}
 
@@ -149,13 +165,14 @@ export function render(el) {
   const dataPadrao = `${S.ano}-${mm}` === hoje().slice(0, 7) || (!S.mes && String(S.ano) === hoje().slice(0, 4)) ? undefined : `${S.ano}-${mm}-01`;
   el.querySelectorAll('[data-novo]').forEach((b) => b.onclick = () => abrirFormLancamento(null, rerender, { data: dataPadrao }));
   el.querySelectorAll('[data-f]').forEach((i) => {
-    const ev = i.tagName === 'INPUT' ? 'input' : 'change';
+    const ev = i.tagName === 'INPUT' && i.type !== 'date' ? 'input' : 'change';
     i.addEventListener(ev, () => {
       filtros[i.dataset.f] = i.value;
-      if (i.tagName === 'INPUT') { clearTimeout(i._t); i._t = setTimeout(() => { rerender(); const n = el.querySelector('[data-f=texto]'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); }
+      if (i.tagName === 'INPUT' && i.type !== 'date') { clearTimeout(i._t); i._t = setTimeout(() => { rerender(); const n = el.querySelector('[data-f=texto]'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); }
       else rerender();
     });
   });
+  el.querySelector('[data-limpar-datas]')?.addEventListener('click', () => { filtros.de = ''; filtros.ate = ''; rerender(); });
   el.querySelectorAll('[data-limpar]').forEach((lim) => lim.onclick = () => { Object.keys(filtros).forEach((k) => filtros[k] = ''); rerender(); });
 
   el.querySelectorAll('.item').forEach((it) => {

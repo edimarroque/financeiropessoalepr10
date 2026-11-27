@@ -630,3 +630,17 @@ main#tela { min-width: 0; }
 .topo-tela { flex-wrap: wrap; min-width: 0; }
 .cartao-bloco .tabela { max-width: 100%; }
 .cartao-bloco:has(> .tabela), .cartao-bloco:has(.tabela) { overflow-x: auto; }
+
+/* v1.6.7 — itens clicáveis nos gráficos (ex.: “Sem categoria”), filtro por data e sugestões recolhíveis */
+.clicavel { cursor: pointer; }
+.rosca path.clicavel:hover, .bh-linha.clicavel:hover .bh-barra { filter: brightness(1.12); }
+.rosca-leg li.clicavel:hover span, tr.clicavel:hover td { color: var(--acento); }
+.bh-linha.clicavel:focus-visible, .rosca-leg li.clicavel:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 6px; }
+.sem-cat-atalho { margin-top: 10px; max-width: 100%; white-space: normal; text-align: left; }
+.filtro-data { display: flex; align-items: center; gap: 6px; font-size: .9em; color: var(--suave); min-width: 0; }
+.filtro-data input { flex: 1; min-width: 0; }
+.sug-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sug-cab h2 { margin: 0; flex: 1; min-width: 0; }
+.sug-cab .btn-seta { background: none; border: 0; cursor: pointer; font-size: 1.1em; color: var(--suave); padding: 2px 6px; border-radius: 6px; transition: transform .15s; }
+.sug-cab .btn-seta[aria-expanded="false"] { transform: rotate(-90deg); }
+.sugestoes.recolhida > :not(.sug-cab) { display: none; }

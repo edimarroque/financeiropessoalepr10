@@ -161,7 +161,12 @@ export function conferirSaldo(c, aoFim) {
   modal(`Conferir saldo — ${c.nome}`, `
     <form class="form">
       <div class="resumo-tabela"><div><span>Saldo no app hoje</span><b>${moedaFmt(noApp, c.moeda)}</b></div></div>
-      ${c.conferido_em ? `<p class="dica">Última conferência: ${fmtData(c.conferido_em)} (${brl(c.conferido_saldo)}).</p>` : ''}
+      ${c.conferido_em ? (() => {
+        // v1.6.7: o saldo do banco pode vir sozinho do extrato importado; compara com o app na mesma data
+        const app = saldoConta(c, S.lancs, c.conferido_em), d = Math.round((Number(c.conferido_saldo) - app) * 100) / 100;
+        return `<p class="dica">Última conferência: ${fmtData(c.conferido_em)} — banco ${moedaFmt(c.conferido_saldo, c.moeda)} · app nessa data ${moedaFmt(app, c.moeda)}
+          ${Math.abs(d) < 0.01 ? '✅' : `<b class="neg">diferença ${d > 0 ? '+' : ''}${moedaFmt(d, c.moeda)}</b>`}</p>`;
+      })() : ''}
       <label>Saldo que aparece no banco agora <input name="real" inputmode="decimal" placeholder="0,00" required></label>
       <p class="conf-dif" data-dif></p>
       <p class="dica">Se houver diferença, confira lançamentos que faltam (ou duplicados) antes de ajustar. O ajuste cria um lançamento “Ajuste de saldo”, sem categoria.</p>

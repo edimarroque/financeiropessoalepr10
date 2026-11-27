@@ -1,7 +1,8 @@
 // Tela: Importar (fatura PDF, extrato OFX, CSV de banco e migração da planilha)
 import * as db from '../db.js';
-import { S, recarregarLancamentos, recarregarLotes, cartaoPorId, contaPorId } from '../state.js';
-import { hoje, fmtData, somarMeses, somarDias, faturaDoPagamento, fatura, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
+import { S, recarregarLancamentos, recarregarLotes, recarregarCadastros, cartaoPorId, contaPorId } from '../state.js';
+import { prefs, salvarPrefs } from '../prefs.js';
+import { hoje, fmtData, somarMeses, somarDias, faturaDoPagamento, faturasParaPagamento, saldoConta, fatura, vencimentosDoCartao, vencimentoAtual, fechamentoDoVencimento, arred } from '../calc.js';
 import { esc, brl, toast, confirmar, comCarregando } from '../ui.js';
 import { sugerir } from '../categorizar.js';
 import { chamarApi, paraBase64 } from '../servicos/api.js';
@@ -72,7 +73,7 @@ function renderInicio(el) {
         <div class="item item-estatico">
           <div class="item-icone">${ORIGEM_ROT[l.origem]?.slice(0, 2) || '📥'}</div>
           <div class="item-meio"><div class="item-titulo">${esc(l.descricao || ORIGEM_ROT[l.origem] || l.origem)}</div>
-            <div class="item-sub">${new Date(l.created_at).toLocaleString('pt-BR')} · ${l.quantidade} lançamento(s) · ${brl(l.total)}</div></div>
+            <div class="item-sub">${new Date(l.created_at).toLocaleString('pt-BR')} · ${l.quantidade} lançamento(s) · ${totalLoteTxt(l)}</div></div>
           <div class="item-fim acoes-linha"><a class="btn btn-peq" href="#/lancamentos" data-ver-lote="${l.id}">Ver</a><button class="btn btn-peq btn-perigo" data-desfazer="${l.id}">🗑️ Remover</button></div>
         </div>`).join('')}</div>` : '<p class="dica">Nenhuma importação ainda.</p>'}
     </section>`;
@@ -195,6 +196,44 @@ function metodoPorDescricao(d) {
   return 'Débito';
 }
 
+// v1.6.7: o total do lote é gravado como saídas − entradas. Num extrato de conta o que interessa é o contrário
+// (entradas − saídas, ex.: +R$ 2.555,77). Só a exibição muda; os dados gravados ficam como estão.
+function loteDeConta(lote) {
+  if (lote.origem === 'extrato_pdf') return true;
+  if (lote.origem === 'planilha' || lote.origem === 'fatura_pdf') return false;
+  return S.lancs.some((x) => x.lote_id === lote.id && x.conta_id && (!x.cartao_id || x.tipo === 'pagamento_fatura'));
+}
+function totalLoteTxt(lote) {
+  if (!loteDeConta(lote)) return brl(lote.total);
+  const v = arred(-Number(lote.total));
+  return `<span class="${v >= 0 ? 'pos' : 'neg'}" title="Entradas menos saídas no período">${v > 0 ? '+' : ''}${brl(v)} no período</span>`;
+}
+
+// v1.6.7: PIX/TED entre as suas próprias contas (ex.: "PIX TRANSF EDIMAR") = transferência, não é gasto nem receita
+export function meusNomes() {
+  const p = prefs().nomesProprios;
+  if (p) return String(p).split(/[,;]/).map((x) => normDesc(x)).filter((x) => x.length >= 3);
+  const n = normDesc(S.perfil?.nome || '').split(' ').filter((w) => w.length >= 3);
+  if (n.length) return [n[0]];
+  const email = normDesc((S.user?.email || '').split('@')[0].replace(/[^a-zA-Z]+/g, ' ')).split(' ')[0] || '';
+  return email.length >= 4 ? [email] : [];
+}
+export function pareceTransfPropria(desc, nomes = meusNomes()) {
+  const d = normDesc(desc);
+  if (!nomes.length || !/\b(PIX|TED|DOC|TEF|TRANSF|TRANSFERENCIA)\b/.test(d)) return false;
+  // o nome pode vir inteiro ("EDIMAR PEREIRA ROQUE") ou só o primeiro nome ("EDIMAR"); o e-mail pode juntar nome e sobrenome
+  const palavras = d.split(' ').filter((w) => w.length >= 4);
+  return nomes.some((n) => { const ps = n.split(' '); return palavras.some((w) => ps.includes(w) || (ps.length === 1 && n.length > w.length && n.startsWith(w))); });
+}
+/** A outra conta da transferência: a escolhida à mão, ou a que tem mais palavras em comum no nome (ex.: "itau salario" ↔ "itau pessoal") */
+function outraConta(conta, escolhida) {
+  if (escolhida) return contaPorId(escolhida);
+  const ps = new Set(normDesc(conta.nome).split(' ').filter((w) => w.length >= 3 && w !== 'CONTA'));
+  const outras = S.contas.filter((c) => c.id !== conta.id && c.ativo !== false && (c.moeda || 'BRL') === (conta.moeda || 'BRL'));
+  const pontos = (c) => normDesc(c.nome).split(' ').filter((w) => ps.has(w)).length;
+  return outras.sort((a, b) => pontos(b) - pontos(a))[0] || null;
+}
+
 function pareceFatura(d) {
   return /FATURA|BOLETO BANCO XP|PAG.*CARTAO|CARTAO.*PAG/.test(normDesc(d));
 }
@@ -235,6 +274,8 @@ function preparar() {
         situacao: r.situacao || sitPadrao, erro: erros.length ? `Não encontrei ${erros.join(', ')}` : null,
       };
       L.chave = comSeq(`app:${L.data_movimento}:${L.data_pagamento}:${L.tipo}:${centavos(L.valor)}:${normDesc(L.descricao)}:${L.parcela_num || ''}/${L.parcela_total || ''}`);
+      // v1.6.7: pagamento de fatura vindo da planilha/CSV do app também fica ligado à fatura que ele paga
+      if (L.tipo === 'pagamento_fatura' && cartao) L.fatura_venc = e.fatura_venc !== undefined ? e.fatura_venc : faturaDoPagamento(cartao, S.lancs, L.valor, L.data_movimento);
     } else if (cfg.destTipo === 'cartao') {
       const cartao = cartaoPorId(cfg.destId);
       // a fatura já foi paga (pagamento importado do extrato ou feito na tela Cartões): os itens já entram como pagos
@@ -254,7 +295,7 @@ function preparar() {
     } else {
       const conta = contaPorId(cfg.destId);
       const sinal = r.sinal !== undefined ? r.sinal : (r.sinalBruto || -1);
-      const tipoPadrao = sinal > 0 ? 'entrada' : (pareceFatura(r.descricao) ? 'pagamento_fatura' : 'saida');
+      const tipoPadrao = pareceTransfPropria(r.descricao) ? 'transferencia' : sinal > 0 ? 'entrada' : (pareceFatura(r.descricao) ? 'pagamento_fatura' : 'saida');
       const tipo = e.tipo || tipoPadrao;
       let cartaoPag = null;
       if (tipo === 'pagamento_fatura') {
@@ -268,8 +309,16 @@ function preparar() {
         parcela_num: null, parcela_total: null,
         situacao: r.data > hoje() ? 'pendente' : (tipo === 'entrada' ? 'recebido' : 'pago'), erro: null,
       };
-      // pagamento de fatura: acha a fatura que ele quita (mesmo cartão, total = valor pago) para marcá-la como paga
-      if (tipo === 'pagamento_fatura' && cartaoPag) L.fatura_venc = faturaDoPagamento(cartaoPorId(cartaoPag), S.lancs, L.valor, r.data);
+      if (tipo === 'transferencia') {
+        // saiu desta conta → vai para a outra; entrou nesta conta → veio da outra
+        const outra = outraConta(conta, e.conta_outra);
+        L.sentido = sinal > 0 ? 'entrou' : 'saiu';
+        if (sinal > 0) { L.conta_id = outra?.id || null; L.conta_destino_id = conta.id; } else L.conta_destino_id = outra?.id || null;
+        L.outra_id = outra?.id || null;
+        if (!outra) L.erro = 'Escolha a outra conta da transferência';
+      }
+      // pagamento de fatura: acha a fatura que ele quita (mesmo cartão, total = valor pago) ou usa a escolhida à mão
+      if (tipo === 'pagamento_fatura' && cartaoPag) L.fatura_venc = e.fatura_venc !== undefined ? e.fatura_venc : faturaDoPagamento(cartaoPorId(cartaoPag), S.lancs, L.valor, r.data);
       L.chave = r.fitid ? `ofx:${conta.id}:${r.fitid}:${r.data}:${centavos(r.valor)}` : comSeq(`ct:${conta.id}:${r.data}:${centavos(r.valor)}:${normDesc(r.descricao)}`);
     }
 
@@ -286,12 +335,12 @@ function preparar() {
     else {
       // a conferência usa SEMPRE a descrição original (como veio do banco), nunca a descrição editada
       const orig = (x) => x.descricao_original || x.descricao;
-      const sinal = (t) => (t === 'entrada' ? 1 : -1);
+      const sinal = (x) => (cfg.destTipo === 'conta' ? sinalNaConta(x, cfg.destId) : (x.tipo === 'entrada' ? 1 : -1));
       const candidatos = S.lancs.filter((x) => !usados.has(x.id) && x.chave_dedup !== L.chave && !(x.chave_dedup && existentesArquivo.has(x.chave_dedup)) &&
-        (cfg.destTipo === 'app' ? x.tipo === L.tipo : sinal(x.tipo) === sinal(L.tipo)) &&
+        (cfg.destTipo === 'app' ? x.tipo === L.tipo : sinal(x) === sinal(L)) &&
         centavos(x.valor) === centavos(L.valor) && x.data_movimento === L.data_movimento &&
         (!L.parcela_total || !x.parcela_total || x.parcela_num === L.parcela_num) &&
-        (cfg.destTipo === 'conta' ? x.conta_id === L.conta_id && (L.tipo !== 'pagamento_fatura' || !x.cartao_id || x.tipo === 'pagamento_fatura')
+        (cfg.destTipo === 'conta' ? (x.conta_id === cfg.destId || (x.tipo === 'transferencia' && x.conta_destino_id === cfg.destId)) && (L.tipo !== 'pagamento_fatura' || !x.cartao_id || x.tipo === 'pagamento_fatura')
           : (x.cartao_id || null) === (L.cartao_id || null) && (L.cartao_id || x.conta_id === L.conta_id)));
       const ks = chavesDesc(L.descricao);
       const sim = (x) => { const kx = chavesDesc(orig(x)); return !ks.length || !kx.length || kx[0] === ks[0] || (ks[2] && kx[2] === ks[2]) || kx[0].includes(ks[0]) || ks[0].includes(kx[0]); };
@@ -325,6 +374,13 @@ function preparar() {
   imp.faltando = faltando;
 }
 
+/** +1 se o lançamento aumenta o saldo desta conta, −1 se diminui */
+function sinalNaConta(l, contaId) {
+  if (l.tipo === 'entrada') return 1;
+  if (l.tipo === 'transferencia') return l.conta_destino_id === contaId ? 1 : -1;
+  return -1;
+}
+
 // =====================================================================
 // Etapa 2 — prévia
 // =====================================================================
@@ -339,7 +395,9 @@ function renderPrevia(el) {
   const sel = linhas.filter((l) => l.incluir);
   const tot = (arr, f) => arred(arr.filter(f).reduce((s, l) => s + Number(l.valor), 0));
   const principais = linhas.filter((l) => !l.futura);
-  const totalArquivo = arred(principais.filter((l) => l.incluir || l.dup).reduce((s, l) => s + (l.tipo === 'entrada' ? -1 : 1) * l.valor, 0));
+  const sinalL = (l) => (cfg.destTipo === 'conta' ? sinalNaConta(l, cfg.destId) : (l.tipo === 'entrada' ? 1 : -1));
+  // saídas − entradas (fatura); no extrato a tela mostra o contrário: entradas − saídas
+  const totalArquivo = arred(principais.filter((l) => l.incluir || l.dup).reduce((s, l) => s - sinalL(l) * l.valor, 0));
   const saidas = tot(sel, (l) => l.tipo === 'saida'), entradas = tot(sel, (l) => l.tipo === 'entrada'), pagFat = tot(sel, (l) => l.tipo === 'pagamento_fatura');
   const semCat = sel.filter((l) => (l.tipo === 'entrada' || l.tipo === 'saida') && !l.categoria_id).length;
   const dups = linhas.filter((l) => l.dup || l.jaImportado).length, parec = linhas.filter((l) => l.parecido).length, erros = linhas.filter((l) => l.erro).length;
@@ -368,6 +426,19 @@ function renderPrevia(el) {
     conferencia = `<p class="dica">🤖 Lido pela IA${lido.modelo ? ` (${esc(lido.modelo)})` : ''}.${txtEmenda} Confira os valores com o PDF antes de importar.</p>` + conferencia;
   }
   for (const a of lido.alertas || []) conferencia += `<div class="aviso">⚠️ ${esc(a)}</div>`;
+  // v1.6.7: saldo final do extrato vira o saldo do banco na conferência da conta (sem digitar)
+  if (cfg.destTipo === 'conta' && lido.saldoFinal && lido.saldoFinal.valor != null) {
+    const conta = contaPorId(cfg.destId);
+    const dataSaldo = lido.saldoFinal.data || principais.map((l) => l.data_movimento).sort().pop() || hoje();
+    const previsto = saldoConta(conta, [...S.lancs, ...sel.filter((l) => !l.dup)], dataSaldo);
+    const d = arred(lido.saldoFinal.valor - previsto);
+    const ok = Math.abs(d) < 0.01;
+    conferencia += `<div class="aviso ${ok ? 'ok' : ''}">🏦 Saldo final do extrato em ${fmtData(dataSaldo)}: <b>${brl(lido.saldoFinal.valor)}</b> · no app depois de importar: <b>${brl(previsto)}</b>
+      ${ok ? ' ✅ bate.' : ` — diferença de ${d > 0 ? '+' : ''}${brl(d)} (só aviso; nada é corrigido sozinho).`}
+      <br><small>Ao importar, este saldo fica gravado como o saldo do banco na conferência da conta${conta.conferido_em && conta.conferido_em > dataSaldo ? ` (não substitui a conferência mais nova, de ${fmtData(conta.conferido_em)})` : ''}.</small></div>`;
+  }
+  const transfs = cfg.destTipo === 'conta' ? principais.filter((l) => l.tipo === 'transferencia').length : 0;
+  const nomes = meusNomes();
 
   el.innerHTML = `
     <div class="topo-tela"><h1>Prévia da importação</h1><button class="btn" data-voltar>← Voltar</button></div>
@@ -377,7 +448,9 @@ function renderPrevia(el) {
         <div><small>Selecionados</small><b>${sel.length} de ${linhas.length}</b></div>
         <div><small>Despesas${futuras ? ' (c/ parcelas futuras)' : ''}</small><b class="neg">${brl(saidas)}</b></div>
         <div><small>Receitas / estornos</small><b class="pos">${brl(entradas)}</b></div>
-        <div><small>${pagFat ? 'Pagamentos de fatura' : 'Total marcado'}</small><b>${brl(pagFat || totalArquivo)}</b></div>
+        ${cfg.destTipo === 'conta'
+          ? `<div><small>Entradas − saídas</small><b class="${-totalArquivo >= 0 ? 'pos' : 'neg'}">${-totalArquivo > 0 ? '+' : ''}${brl(-totalArquivo)}</b></div>`
+          : `<div><small>${pagFat ? 'Pagamentos de fatura' : 'Total marcado'}</small><b>${brl(pagFat || totalArquivo)}</b></div>`}
       </div>
       ${conferencia}
       <ul class="lista-simples">
@@ -388,6 +461,8 @@ function renderPrevia(el) {
         ${erros ? `<li>❌ ${erros} com erro (veja abaixo) — ficam de fora.</li>` : ''}
         ${futuras ? `<li>📅 ${futuras} parcela(s) futura(s) serão criadas nas próximas faturas.</li>` : ''}
         ${semCat ? `<li>🏷️ ${semCat} sem categoria (ficam como “A classificar”).</li>` : ''}
+        ${cfg.destTipo === 'conta' ? `<li>🔁 ${transfs ? `<b>${transfs}</b> PIX/TED entre as suas contas viram <b>transferência</b> (não contam como gasto nem receita).` : 'Nenhum PIX/TED entre as suas contas neste arquivo.'}
+          Seu nome nos extratos: <b>${esc(nomes.join(', ') || '—')}</b> <button class="btn-link" data-nomes>mudar</button></li>` : ''}
         ${lido.avisos.length ? `<li>ℹ️ ${lido.avisos.length} linha(s) do arquivo não puderam ser lidas.</li>` : ''}
       </ul>
       ${[...imp.faltando.categoria.keys()].length ? `<div class="aviso">Categorias que não existem no app: <b>${[...imp.faltando.categoria.entries()].map(([n, q]) => `${esc(n)} (${q})`).join(', ')}</b>. Crie em Cadastros e leia o arquivo de novo.</div>` : ''}
@@ -409,23 +484,23 @@ function renderPrevia(el) {
             ${l.jaImportado ? `<small>Já está no app como “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
             ${l.parecido ? `<small>Mesma data e valor de “${esc(l.existente)}” — marque só se for outro lançamento.</small>` : ''}
             ${l.erro ? `<small class="neg">${esc(l.erro)}</small>` : ''}
-            ${l.tipo === 'pagamento_fatura' && cfg.destTipo === 'conta' && !l.dup && !l.jaImportado ? (l.fatura_venc
-              ? `<small class="pos">✅ Quita a fatura de ${fmtData(l.fatura_venc)} (${brl(fatura(cartaoPorId(l.cartao_id), S.lancs, l.fatura_venc).total)}) — ela fica como paga.</small>`
-              : `<small class="neg">Não achei a fatura deste valor no cartão — depois de importar a fatura, ela já entra como paga se o valor bater.</small>`) : ''}
+            ${l.tipo === 'pagamento_fatura' && cfg.destTipo !== 'cartao' && l.cartao_id && !l.dup && !l.jaImportado ? statusPagamento(l) : ''}
             ${cfg.destTipo === 'app' ? `<small>${esc(rotDestinoApp(l))}</small>` : ''}
           </div>
           <div class="imp-cat">
             ${cfg.destTipo !== 'app' && !l.futura ? `<select data-tipo aria-label="Tipo">
               <option value="saida" ${l.tipo === 'saida' ? 'selected' : ''}>Despesa</option>
               <option value="entrada" ${l.tipo === 'entrada' ? 'selected' : ''}>${cfg.destTipo === 'cartao' ? 'Estorno/crédito' : 'Receita'}</option>
-              ${cfg.destTipo === 'conta' ? `<option value="pagamento_fatura" ${l.tipo === 'pagamento_fatura' ? 'selected' : ''}>Pagamento de fatura</option>` : ''}
+              ${cfg.destTipo === 'conta' ? `<option value="pagamento_fatura" ${l.tipo === 'pagamento_fatura' ? 'selected' : ''}>Pagamento de fatura</option>
+              <option value="transferencia" ${l.tipo === 'transferencia' ? 'selected' : ''}>Entre minhas contas</option>` : ''}
             </select>` : ''}
             ${l.tipo === 'pagamento_fatura'
               ? (cfg.destTipo === 'conta' ? `<select data-cartao aria-label="Cartão">${S.cartoes.map((c) => `<option value="${c.id}" ${c.id === l.cartao_id ? 'selected' : ''}>💳 ${esc(c.nome)}</option>`).join('')}</select>` : '<small>Pagamento de fatura</small>')
+              : l.tipo === 'transferencia' && cfg.destTipo === 'conta' ? `<select data-outra aria-label="Outra conta"><option value="">${l.sentido === 'entrou' ? 'Veio de…' : 'Foi para…'}</option>${S.contas.filter((c) => c.id !== cfg.destId).map((c) => `<option value="${c.id}" ${c.id === l.outra_id ? 'selected' : ''}>${l.sentido === 'entrou' ? '← ' : '→ '}🏦 ${esc(c.nome)}</option>`).join('')}</select>`
               : l.tipo === 'transferencia' ? '<small>Transferência</small>'
               : `<select data-cat class="${l.categoria_id ? (l.sugerida ? 'sugerida' : '') : 'sem-cat'}" aria-label="Categoria" ${l.futura ? 'disabled' : ''}>${opcoesCat(l.tipo, l.categoria_id)}</select>`}
           </div>
-          <div class="imp-valor valor ${l.tipo === 'entrada' ? 'pos' : ''}">${l.tipo === 'entrada' ? '+' : ''}${brl(l.valor)}</div>
+          <div class="imp-valor valor ${sinalL(l) > 0 && l.tipo !== 'saida' ? 'pos' : ''} ${l.tipo === 'transferencia' ? 'neutro' : ''}">${sinalL(l) > 0 && l.tipo !== 'saida' ? '+' : ''}${brl(l.valor)}</div>
         </div>`).join('')}
     </div>
     ${lido.avisos.length ? `<details class="filtros mt"><summary>Linhas não lidas (${lido.avisos.length})</summary><ul class="lista-simples">${lido.avisos.slice(0, 50).map((a) => `<li>${esc(a)}</li>`).join('')}</ul></details>` : ''}
@@ -445,7 +520,11 @@ function renderPrevia(el) {
     const t = row.querySelector('[data-tipo]');
     if (t) t.onchange = () => { const e = edit(l); e.tipo = t.value; delete e.categoria_id; preparar(); rerender(); };
     const cc = row.querySelector('[data-cartao]');
-    if (cc) cc.onchange = () => { edit(l).cartao_id = cc.value; preparar(); rerender(); };
+    if (cc) cc.onchange = () => { const e = edit(l); e.cartao_id = cc.value; delete e.fatura_venc; preparar(); rerender(); };
+    const fv = row.querySelector('[data-fatura]');
+    if (fv) fv.onchange = () => { edit(l).fatura_venc = fv.value || null; preparar(); rerender(); };
+    const ou = row.querySelector('[data-outra]');
+    if (ou) ou.onchange = () => { edit(l).conta_outra = ou.value || null; preparar(); rerender(); };
     const c = row.querySelector('[data-cat]');
     if (c) c.onchange = () => {
       const v = c.value || null;
@@ -465,6 +544,30 @@ function renderPrevia(el) {
     preparar(); rerender();
   });
   el.querySelector('[data-importar]').onclick = (e) => gravar(e.currentTarget, el);
+  el.querySelector('[data-nomes]')?.addEventListener('click', async () => {
+    const v = window.prompt('Como o seu nome aparece nos extratos? (separe por vírgula; ex.: EDIMAR, EDIMAR PEREIRA ROQUE)', meusNomes().join(', '));
+    if (v === null) return;
+    try { await salvarPrefs({ nomesProprios: v.trim() }); } catch (err) { toast(err.message, 'erro'); }
+    for (const k of imp.edits.keys()) delete imp.edits.get(k).tipo; // reavalia os tipos sugeridos
+    preparar(); rerender();
+  });
+}
+
+/** Pagamento de fatura na prévia: escolher a fatura à mão e ver se quita tudo ou só uma parte */
+function statusPagamento(l) {
+  const cartao = cartaoPorId(l.cartao_id);
+  const fats = faturasParaPagamento(cartao, S.lancs, l.data_movimento);
+  if (l.fatura_venc && !fats.some((f) => f.venc === l.fatura_venc)) fats.push(fatura(cartao, S.lancs, l.fatura_venc));
+  const sel = `<select data-fatura aria-label="Fatura que este pagamento quita"><option value="">Não ligar a nenhuma fatura agora</option>
+    ${fats.sort((a, b) => b.venc.localeCompare(a.venc)).map((f) => `<option value="${f.venc}" ${f.venc === l.fatura_venc ? 'selected' : ''}>Fatura venc. ${fmtData(f.venc)} — ${brl(f.total)}${f.pago ? ` (já pago ${brl(f.pago)})` : ''}${f.itens.length ? '' : ' · ainda não importada'}</option>`).join('')}</select>`;
+  if (!l.fatura_venc) return `<small class="neg">Não achei a fatura deste valor — escolha abaixo (ou deixe para ligar quando a fatura for importada).</small>${sel}`;
+  const f = fatura(cartao, S.lancs, l.fatura_venc);
+  const resta = arred(f.total - f.pago - l.valor);
+  const txt = !f.itens.length ? `🔗 Fica ligado à fatura de ${fmtData(f.venc)} (ainda não importada).`
+    : Math.abs(resta) <= 0.05 ? `✅ Quita a fatura de ${fmtData(f.venc)} (${brl(f.total)}) — ela fica como paga.`
+    : resta > 0 ? `◐ Paga parcialmente a fatura de ${fmtData(f.venc)} (${brl(f.total)}) — falta ${brl(resta)}.`
+    : `⚠️ Paga ${brl(-resta)} a mais que a fatura de ${fmtData(f.venc)} (${brl(f.total)}).`;
+  return `<small class="${resta > 0.05 || resta < -0.05 ? '' : 'pos'}">${txt}</small>${sel}`;
 }
 
 function rotDestinoApp(l) {
@@ -482,7 +585,7 @@ async function gravar(botao, el) {
   if (!sel.length) return;
   const origem = cfg.destTipo === 'app' ? 'planilha' : cfg.ext === 'pdf' ? (cfg.destTipo === 'conta' ? 'extrato_pdf' : 'fatura_pdf') : cfg.ext === 'ofx' ? 'ofx' : 'csv';
   const destinoTxt = cfg.destTipo === 'cartao' ? `${cartaoPorId(cfg.destId).nome} venc. ${fmtData(cfg.venc)}` : cfg.destTipo === 'conta' ? contaPorId(cfg.destId).nome : 'vários destinos';
-  const total = arred(sel.reduce((s, l) => s + (l.tipo === 'entrada' ? -1 : 1) * Number(l.valor), 0));
+  const total = arred(sel.reduce((s, l) => s - (cfg.destTipo === 'conta' ? sinalNaConta(l, cfg.destId) : (l.tipo === 'entrada' ? 1 : -1)) * Number(l.valor), 0));
   const grupos = new Map(); // agrupa a parcela lida com as futuras criadas
   await comCarregando(botao, async () => {
     const [lote] = await db.inserir('lotes_importacao', [{ origem, descricao: `${ORIGEM_ROT[origem]}${cfg.ia ? ' (IA)' : ''} · ${destinoTxt} · ${cfg.arquivo}`, quantidade: sel.length, total }]);
@@ -507,6 +610,16 @@ async function gravar(botao, el) {
       // fatura importada depois do pagamento (que veio do extrato sem achar a fatura): liga os dois agora
       const solto = cfg.destTipo === 'cartao' ? pagamentoSemFatura(cartaoPorId(cfg.destId), cfg.venc, imp.lido.totalDeclarado) : null;
       if (solto) await db.atualizar('lancamentos', solto.id, { fatura_venc: cfg.venc });
+      // v1.6.7: saldo final do extrato = saldo do banco na conferência (só se for mais novo que a última conferência)
+      const sf = imp.lido.saldoFinal;
+      if (cfg.destTipo === 'conta' && sf && sf.valor != null) {
+        const conta = contaPorId(cfg.destId);
+        const dataSaldo = sf.data || linhas.filter((l) => !l.futura).map((l) => l.data_movimento).sort().pop();
+        if (dataSaldo && (!conta.conferido_em || dataSaldo >= conta.conferido_em)) {
+          await db.atualizar('contas', conta.id, { conferido_em: dataSaldo, conferido_saldo: sf.valor });
+          await recarregarCadastros();
+        }
+      }
     } catch (e) {
       await db.excluirOnde('lancamentos', 'lote_id', lote.id).catch(() => {});
       await db.excluir('lotes_importacao', lote.id).catch(() => {});

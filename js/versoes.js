@@ -1,6 +1,20 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.7', data: '2026-11-27', titulo: 'Importação mais certa e filtros novos',
+    novidades: [
+      '🔁 PIX/TED entre as suas próprias contas (ex.: “PIX TRANSF EDIMAR”) agora entra como transferência entre contas na importação do extrato — não conta como gasto nem receita. A outra conta é escolhida sozinha (dá para trocar na prévia) e o mesmo PIX no extrato da outra conta é reconhecido como já importado. O nome que identifica você nos extratos pode ser ajustado na prévia (“mudar”).',
+      '🏦 Saldo do banco preenchido sozinho: o saldo final do extrato (PDF ou OFX) fica gravado como saldo do banco na conferência da conta. A prévia já mostra se ele bate com o saldo do app depois de importar; diferença só avisa, nada é corrigido sozinho.',
+      '💳 Pagamento de fatura com valor diferente do total (parcial, ou fatura ainda não importada): escolha a fatura à mão na prévia ou abrindo o pagamento. Cartões mostra “Paga parcialmente — falta R$ X” e quanto já foi pago. Pagamentos vindos da planilha/CSV do app também ficam ligados à fatura.',
+      '❔ Filtro “Sem categoria” em Lançamentos (com a quantidade). Nos Dashboards, tocar em “Sem categoria” no gráfico, na lista ou no botão “classificar →” abre a lista desses lançamentos para editar categoria, descrição e tags.',
+      '📅 Filtro por data em Lançamentos: “De” e “Até” (pela data da compra/movimento), podendo passar de um mês para outro.',
+      '💡 Sugestões de melhorias: seta no título para recolher/mostrar a seção inteira e botão para abrir ou recolher todos os grupos de uma vez. A escolha fica guardada.',
+    ],
+    correcoes: [
+      'Total da importação de extrato com sinal invertido (ex.: aparecia −R$ 2.555,77 quando o período teve +R$ 2.555,77). Agora mostra “Entradas − saídas” com o sinal certo, também na lista “Importações feitas” (os dados gravados não mudaram, só a exibição).',
+    ],
+  },
+  {
     versao: '1.6.6', data: '2026-11-27', titulo: 'Layout do computador arrumado',
     novidades: [
       '🖥️ No computador, as telas usam a largura toda ao lado do menu (até ~1440 px). Cartões e Relatório não ficam mais presos numa coluna estreita no meio.',
@@ -186,6 +200,6 @@ export const VERSOES = [
 ];
 
 export const PROXIMAS = [
-  '⏭️ v1.6.7: sinal do total na importação, filtro “Sem categoria” e por data, PIX entre contas próprias, pagamento de fatura com valor diferente, saldo do banco automático.',
+  '⏭️ v1.6.8: conferência pelo “saldo do dia” do extrato, total da fatura conferido com o PDF e prévia com OK / duplicado / faltando / diferença de saldo.',
   '💡 Continue anotando ideias no campo “Sugestões de melhorias” acima — cada item vira uma versão nova.',
 ];

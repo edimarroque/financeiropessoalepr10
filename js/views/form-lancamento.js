@@ -5,7 +5,7 @@ import { hoje, gerarParcelas, situacaoPadrao, vencimentoDaCompra, fmtData, arred
 import { esc, brl, numero, modal, toast, confirmar, comCarregando } from '../ui.js';
 import { sugerir } from '../categorizar.js';
 import { recarregarExtras } from '../state.js';
-import { orcamentoCategorias, intervalo, partes } from '../calc.js';
+import { orcamentoCategorias, intervalo, partes, fatura, faturasParaPagamento } from '../calc.js';
 import { sincronizarRecorrentes } from '../servicos/recorrentes.js';
 import { cotacaoUSD, usd } from '../servicos/cotacao.js';
 import { comprimirFoto } from '../components/visual.js';
@@ -391,11 +391,46 @@ export function abrirFormLancamento(existente, aoSalvar, padrao = {}) {
 
 function abrirEdicaoPagamentoFatura(ed, aoSalvar) {
   const c = cartaoPorId(ed.cartao_id);
+  // v1.6.7: escolher à mão a fatura que este pagamento quita (pagamento parcial ou fatura importada depois)
+  const fats = c ? faturasParaPagamento(c, S.lancs, ed.data_movimento) : [];
+  if (c && ed.fatura_venc && !fats.some((f) => f.venc === ed.fatura_venc)) fats.push(fatura(c, S.lancs, ed.fatura_venc));
+  const status = () => {
+    if (!ed.fatura_venc || !c) return '<p class="dica">⚠️ Não está ligado a nenhuma fatura do cartão. Escolha abaixo qual fatura ele paga.</p>';
+    const f = fatura(c, S.lancs, ed.fatura_venc);
+    return f.parcial ? `<p>◐ Paga parcialmente a fatura de <b>${fmtData(f.venc)}</b> (${brl(f.total)}) — falta <b>${brl(f.falta)}</b>.</p>`
+      : `<p>✅ Quita a fatura com vencimento em <b>${fmtData(ed.fatura_venc)}</b>.</p>`;
+  };
   modal('Pagamento de fatura', `
     <p>Pagamento da fatura do <b>${esc(c ? c.nome : 'cartão')}</b> de ${brl(ed.valor)} em ${fmtData(ed.data_pagamento)}.</p>
-    ${ed.fatura_venc ? `<p>✅ Quita a fatura com vencimento em <b>${fmtData(ed.fatura_venc)}</b>.</p>` : '<p class="dica">⚠️ Não está ligado a nenhuma fatura do cartão (o valor não bateu com nenhuma fatura).</p>'}
-    <p class="dica">Para corrigir, exclua este pagamento e registre de novo pela tela Cartões. Ao excluir, os itens da fatura voltam a ficar pendentes.</p>
+    ${status()}
+    ${c ? `<form class="form" data-ligar>
+      <label>Fatura que este pagamento quita
+        <select name="venc"><option value="">Nenhuma (ligar depois)</option>
+          ${fats.sort((a, b) => b.venc.localeCompare(a.venc)).map((f) => `<option value="${f.venc}" ${f.venc === ed.fatura_venc ? 'selected' : ''}>Venc. ${fmtData(f.venc)} — ${brl(f.total)}${f.pago ? ` · pago ${brl(f.pago)}` : ''}</option>`).join('')}
+        </select></label>
+      <div class="acoes"><span class="espaco"></span><button class="btn btn-primario">Salvar fatura</button></div>
+    </form>` : ''}
+    <p class="dica">Ao excluir o pagamento, os itens da fatura voltam a ficar pendentes.</p>
     <div class="acoes"><span class="espaco"></span><button class="btn btn-perigo" data-excluir>Excluir pagamento</button></div>`, (el, fechar) => {
+    const fl = el.querySelector('[data-ligar]');
+    if (fl) fl.onsubmit = async (e) => {
+      e.preventDefault();
+      const novo = fl.venc.value || null;
+      if (novo === (ed.fatura_venc || null)) return fechar();
+      await comCarregando(fl.querySelector('button'), async () => {
+        const antigo = ed.fatura_venc;
+        await db.atualizar('lancamentos', ed.id, { fatura_venc: novo });
+        const itens = (v) => S.lancs.filter((l) => l.cartao_id === ed.cartao_id && l.data_pagamento === v && (l.tipo === 'saida' || l.tipo === 'entrada')).map((l) => l.id);
+        // a fatura antiga volta a pendente se nenhum outro pagamento continuar ligado a ela
+        if (antigo && !S.lancs.some((l) => l.id !== ed.id && l.tipo === 'pagamento_fatura' && l.cartao_id === ed.cartao_id && l.fatura_venc === antigo)) {
+          const ids = itens(antigo); if (ids.length) await db.atualizarVarios('lancamentos', ids, { situacao: 'pendente' });
+        }
+        if (novo) { const ids = itens(novo); if (ids.length) await db.atualizarVarios('lancamentos', ids, { situacao: 'pago' }); }
+        await recarregarLancamentos();
+      });
+      toast(novo ? `Pagamento ligado à fatura de ${fmtData(novo)}.` : 'Pagamento desligado da fatura.');
+      fechar(); aoSalvar && aoSalvar();
+    };
     const b = el.querySelector('[data-excluir]');
     b.onclick = async () => {
       if (!(await confirmar('Excluir pagamento', 'Os itens desta fatura voltarão a ficar pendentes.', [{ valor: 'sim', rotulo: 'Excluir', classe: 'btn-perigo' }]))) return;

@@ -184,7 +184,11 @@ export function lerOFX(texto) {
     linhas.push({ ref: i + 1, data, descricao: desc, valor: Math.abs(v), sinal: Math.sign(v), fitid: tag(b, 'FITID'), parcela_num: p.num, parcela_total: p.total });
   });
   if (!blocos.length) avisos.push('Nenhuma transação encontrada no OFX.');
-  return { formato: 'ofx', linhas, avisos };
+  // v1.6.7: saldo final do extrato (<LEDGERBAL>) para a conferência automática da conta
+  const lb = (texto.match(/<LEDGERBAL>([\s\S]*?)(<\/LEDGERBAL>|$)/i) || [])[1] || '';
+  const bal = lb ? lerValor(tag(lb, 'BALAMT').replace(',', '.')) : NaN;
+  const saldoFinal = Number.isFinite(bal) ? { valor: Math.round(bal * 100) / 100, data: lerData(tag(lb, 'DTASOF')) || null } : null;
+  return { formato: 'ofx', linhas, avisos, saldoFinal };
 }
 
 // ---------------- PDF de fatura (leitor genérico) ----------------
@@ -498,5 +502,6 @@ export function converterRespostaIA(j, tipo) {
     vencimentoLido: lerData(j.vencimento),
     periodo: [lerData(j.periodoInicio), lerData(j.periodoFim)],
     variacaoDeclarada: tipo === 'extrato' && ini != null && fim != null ? Math.round((fim - ini) * 100) / 100 : null,
+    saldoFinal: tipo === 'extrato' && fim != null ? { valor: fim, data: lerData(j.periodoFim) || null } : null,
   };
 }

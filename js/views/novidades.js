@@ -14,7 +14,12 @@ async function carregarSugestoes() {
 
 // v1.6.3: modo compacto — sugestões agrupadas pela versão planejada ([v1.6.3] …), grupos fechados;
 // cada sugestão mostra uma linha só e abre o texto completo ao tocar.
-const gruposAbertos = new Set(['Sem versão']);
+// v1.6.7: a escolha (seção recolhida e grupos abertos) fica guardada neste aparelho
+const lerLS = (k, padrao) => { try { const v = localStorage.getItem(k); return v === null ? padrao : JSON.parse(v); } catch { return padrao; } };
+const gravarLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem armazenamento */ } };
+const gruposAbertos = new Set(lerLS('sugGruposAbertos', ['Sem versão']));
+let secaoRecolhida = !!lerLS('sugRecolhida', false);
+const salvarGrupos = () => gravarLS('sugGruposAbertos', [...gruposAbertos]);
 const sugAbertas = new Set();
 const grupoDe = (t) => { const m = String(t).match(/^\s*\[([^\]]+)\]/); return m ? m[1] : 'Sem versão'; };
 const semGrupo = (t) => String(t).replace(/^\s*\[[^\]]+\]\s*/, '');
@@ -55,6 +60,9 @@ const FAQ = [
   ['Como faço backup?', 'Em Mais: “Exportar para Excel (CSV)” ou “Baixar backup completo (JSON)”.'],
 ];
 
+function gruposPendentes() { return [...new Set((sugestoes || []).filter((x) => !x.feito).map((x) => grupoDe(x.texto)))]; }
+function todosAbertos() { const g = gruposPendentes(); return g.length > 0 && g.every((x) => gruposAbertos.has(x)); }
+
 let versaoNova = null; // abre a versão mais nova só na primeira visita depois de atualizar
 
 export function render(el) {
@@ -62,8 +70,12 @@ export function render(el) {
   if (sugestoes === null) carregarSugestoes().then(() => { if (el.isConnected) render(el); });
   el.innerHTML = `
     <div class="topo-tela"><div><h1>Novidades</h1><p class="dica">Você está na versão <b>${VERSAO}</b></p></div><a class="btn" href="#/ajuda">❓ Como usar</a></div>
-    <section class="cartao-bloco sugestoes" id="sugestoes">
-      <h2>💡 Sugestões de melhorias</h2>
+    <section class="cartao-bloco sugestoes ${secaoRecolhida ? 'recolhida' : ''}" id="sugestoes">
+      <div class="sug-cab">
+        <button type="button" class="btn-seta" data-sug-secao aria-expanded="${!secaoRecolhida}" title="${secaoRecolhida ? 'Mostrar' : 'Recolher'} as sugestões">▾</button>
+        <h2>💡 Sugestões de melhorias ${sugestoes ? `<span class="pill">${sugestoes.filter((x) => !x.feito).length}</span>` : ''}</h2>
+        ${sugestoes && sugestoes.some((x) => !x.feito) ? `<button type="button" class="btn btn-peq" data-sug-todos>${todosAbertos() ? '⊖ Recolher grupos' : '⊕ Abrir grupos'}</button>` : ''}
+      </div>
       <form class="sug-form" data-sug-form>
         <input name="texto" maxlength="1000" placeholder="Nova correção ou melhoria…" autocomplete="off" aria-label="Nova sugestão">
         <button class="btn btn-primario">Adicionar</button>
@@ -99,12 +111,24 @@ export function render(el) {
     try {
       const [novo] = await db.inserir('sugestoes', [{ texto }]);
       sugestoes.push(novo);
-      gruposAbertos.add(grupoDe(texto));
+      gruposAbertos.add(grupoDe(texto)); salvarGrupos();
       render(el);
       el.querySelector('[data-sug-form] input').focus();
     } catch (err) { toast(err.message, 'erro'); b.disabled = false; }
   };
-  el.querySelectorAll('.sug-grupo[data-grupo]').forEach((d) => d.ontoggle = () => { if (d.open) gruposAbertos.add(d.dataset.grupo); else gruposAbertos.delete(d.dataset.grupo); });
+  el.querySelectorAll('.sug-grupo[data-grupo]').forEach((d) => d.ontoggle = () => {
+    if (d.open) gruposAbertos.add(d.dataset.grupo); else gruposAbertos.delete(d.dataset.grupo);
+    salvarGrupos();
+    const bt = el.querySelector('[data-sug-todos]'); if (bt) bt.textContent = todosAbertos() ? '⊖ Recolher grupos' : '⊕ Abrir grupos';
+  });
+  el.querySelector('[data-sug-secao]').onclick = () => { secaoRecolhida = !secaoRecolhida; gravarLS('sugRecolhida', secaoRecolhida); render(el); };
+  const bTodos = el.querySelector('[data-sug-todos]');
+  if (bTodos) bTodos.onclick = () => {
+    const abrir = !todosAbertos();
+    for (const g of gruposPendentes()) { if (abrir) gruposAbertos.add(g); else gruposAbertos.delete(g); }
+    if (abrir && secaoRecolhida) { secaoRecolhida = false; gravarLS('sugRecolhida', false); }
+    salvarGrupos(); render(el);
+  };
   el.querySelectorAll('[data-sug-abrir]').forEach((b) => b.onclick = () => {
     const id = b.dataset.sugAbrir, li = b.closest('.sug');
     if (sugAbertas.has(id)) sugAbertas.delete(id); else sugAbertas.add(id);

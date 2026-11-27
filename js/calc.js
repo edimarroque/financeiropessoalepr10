@@ -174,7 +174,24 @@ export function fatura(cartao, lancs, venc) {
     itens: itens.sort((a, b) => a.data_movimento.localeCompare(b.data_movimento)),
     total,
     paga: itens.length > 0 && pendentes.length === 0,
+    // v1.6.7: quanto já foi pago (pagamentos ligados a esta fatura) e quanto falta — pagamento parcial
+    pago: pagoDaFatura(cartao, lancs, venc),
+    get falta() { return arred(Math.max(0, this.total - this.pago)); },
+    get parcial() { return this.pago > 0 && this.total - this.pago > 0.05; },
   };
+}
+
+/** Soma dos pagamentos ligados a uma fatura (campo fatura_venc) */
+export function pagoDaFatura(cartao, lancs, venc) {
+  return arred(lancs.filter((l) => l.tipo === 'pagamento_fatura' && l.cartao_id === cartao.id && l.fatura_venc === venc)
+    .reduce((s, l) => s + Number(l.valor), 0));
+}
+
+/** Faturas que um pagamento pode quitar (para escolher à mão): vencimentos de 75 dias antes a 40 dias depois do pagamento */
+export function faturasParaPagamento(cartao, lancs, data) {
+  if (!cartao || !data) return [];
+  const ini = somarDias(data, -75), fim = somarDias(data, 40);
+  return vencimentosDoCartao(cartao, lancs).filter((v) => v >= ini && v <= fim).map((v) => fatura(cartao, lancs, v));
 }
 
 /**

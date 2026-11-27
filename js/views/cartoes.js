@@ -56,7 +56,7 @@ export function render(el) {
           <select data-venc="${c.id}">
             ${vencs.map((v) => {
               const f = fatura(c, S.lancs, v);
-              const st = f.itens.length === 0 ? '' : (f.paga ? ' ✓ paga' : (v < hoje() ? ' ⚠ vencida' : (v === atual ? ' (atual)' : '')));
+              const st = f.itens.length === 0 ? '' : (f.parcial ? ` ◐ falta ${brl(f.falta)}` : f.paga ? ' ✓ paga' : (v < hoje() ? ' ⚠ vencida' : (v === atual ? ' (atual)' : '')));
               return `<option value="${v}" ${v === sel ? 'selected' : ''}>Vence ${fmtData(v)} — ${brl(f.total)}${st}</option>`;
             }).join('')}
           </select>
@@ -67,7 +67,10 @@ export function render(el) {
         <div><small>Fechamento</small><b>${fmtData(fa.fechamento)}</b></div>
         <div><small>Total</small><b>${brl(fa.total)}</b></div>
         <div><small>Itens</small><b>${fa.itens.length}</b></div>
-        <div>${fa.itens.length === 0 ? '' : fa.paga
+        ${fa.pago > 0 ? `<div><small>Pago</small><b>${brl(fa.pago)}</b></div>` : ''}
+        <div>${fa.itens.length === 0 ? '' : fa.parcial
+          ? `<span class="sit sit-pend" title="Pagamento menor que o total da fatura">Paga parcialmente — falta ${brl(fa.falta)}</span>`
+          : fa.paga
           ? '<span class="sit sit-ok">Fatura paga</span>'
           : `<button class="btn btn-primario" data-pagar="${c.id}" data-v="${sel}">Pagar fatura</button>`}</div>
       </div>

@@ -54,9 +54,9 @@ export function rosca(itens, { centro = '', sub = '' } = {}) {
       : `M ${p(ang, R)} A ${R},${R} 0 ${grande},1 ${p(a2, R)} L ${p(a2, r)} A ${r},${r} 0 ${grande},0 ${p(ang, r)} Z`;
     ang = a2;
     const cor = it.cor || PALETA[i % PALETA.length];
-    return `<path d="${d}" fill="${cor}" fill-rule="evenodd" data-dica="${esc(`${it.nome}\n${brl(it.valor)} (${(frac * 100).toFixed(1)}%)`)}"/>`;
+    return `<path d="${d}" fill="${cor}" fill-rule="evenodd" ${it.acao ? `data-acao="${esc(it.acao)}" class="clicavel"` : ''} data-dica="${esc(`${it.nome}\n${brl(it.valor)} (${(frac * 100).toFixed(1)}%)${it.acao ? '\nToque para ver a lista' : ''}`)}"/>`;
   }).join('');
-  const leg = itens.map((it, i) => `<li><i style="background:${it.cor || PALETA[i % PALETA.length]}"></i><span>${esc(it.nome)}</span><b>${(it.valor / total * 100).toFixed(0)}%</b></li>`).join('');
+  const leg = itens.map((it, i) => `<li ${it.acao ? `data-acao="${esc(it.acao)}" class="clicavel" role="button" tabindex="0"` : ''}><i style="background:${it.cor || PALETA[i % PALETA.length]}"></i><span>${esc(it.nome)}</span><b>${(it.valor / total * 100).toFixed(0)}%</b></li>`).join('');
   return `<div class="rosca"><svg viewBox="0 0 180 180" role="img">${fatias}
       <text x="90" y="88" text-anchor="middle" class="rosca-centro">${esc(centro)}</text>
       <text x="90" y="106" text-anchor="middle" class="rosca-sub">${esc(sub)}</text></svg>
@@ -68,7 +68,7 @@ export function barrasH(itens, { max = null, cor = 'var(--acento)' } = {}) {
   if (!itens.length) return '<p class="dica">Sem dados no período.</p>';
   const m = max || Math.max(...itens.map((i) => i.valor), 1);
   return `<div class="barras-h">${itens.map((it) => `
-    <div class="bh-linha" data-dica="${esc(`${it.rotulo}\n${brl(it.valor)}`)}">
+    <div class="bh-linha ${it.acao ? 'clicavel' : ''}" ${it.acao ? `data-acao="${esc(it.acao)}" role="button" tabindex="0"` : ''} data-dica="${esc(`${it.rotulo}\n${brl(it.valor)}${it.acao ? '\nToque para ver a lista' : ''}`)}">
       <div class="bh-topo"><span>${esc(it.rotulo)}${it.extra ? ` <small>${esc(it.extra)}</small>` : ''}</span><b>${brl(it.valor)}</b></div>
       <div class="bh-trilho"><div class="bh-barra" style="width:${Math.max(1.5, it.valor / m * 100).toFixed(1)}%;background:${it.cor || cor}"></div></div>
     </div>`).join('')}</div>`;

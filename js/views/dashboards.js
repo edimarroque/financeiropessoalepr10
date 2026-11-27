@@ -8,6 +8,7 @@ import { periodoHTML, ligarPeriodo, periodoAtual, rotuloPeriodo } from '../compo
 import { barras, rosca, barrasH, selo, PALETA } from '../components/graficos.js';
 import { normDesc } from '../import/parsers.js';
 import { saldoConta } from '../calc.js';
+import { SEM_CATEGORIA } from './lancamentos.js';
 
 let aba = 'visao';
 let tabelaTipo = 'saida';
@@ -44,6 +45,8 @@ export function render(el) {
   ligarPeriodo(el, rerender);
   el.querySelectorAll('[data-aba]').forEach((b) => b.onclick = () => { aba = b.dataset.aba; rerender(); });
   el.querySelectorAll('[data-tt]').forEach((b) => b.onclick = () => { tabelaTipo = b.dataset.tt; rerender(); });
+  const irSemCat = () => { window.dispatchEvent(new CustomEvent('filtro-categoria', { detail: SEM_CATEGORIA })); location.hash = '#/lancamentos'; };
+  el.querySelectorAll('[data-acao=semcat]').forEach((b) => { b.addEventListener('click', irSemCat); b.addEventListener('keydown', (e) => { if (e.key === 'Enter') irSemCat(); }); });
 }
 
 // ---------------- Visão geral ----------------
@@ -52,7 +55,7 @@ function visao(el, r, rAnt, ini, fim, dias) {
   const taxaAnt = rAnt.receitas ? (rAnt.receitas - rAnt.despesas) / rAnt.receitas : null;
   const mediaDia = dias > 0 ? r.despesas / dias : 0;
   const grupos = GRUPOS_DESPESA.map((g, i) => ({ nome: g, valor: r.porGrupo.get(g) || 0, cor: ['#2563eb', '#f59e0b', '#14b8a6'][i] })).filter((x) => x.valor > 0);
-  if (r.porGrupo.get('Sem categoria')) grupos.push({ nome: 'Sem categoria', valor: r.porGrupo.get('Sem categoria'), cor: COR_SEM_CATEGORIA });
+  if (r.porGrupo.get('Sem categoria')) grupos.push({ nome: 'Sem categoria', valor: r.porGrupo.get('Sem categoria'), cor: COR_SEM_CATEGORIA, acao: 'semcat' });
 
   // série mensal do ano (ou do mês dentro do ano)
   const ano = S.ano;
@@ -68,7 +71,7 @@ function visao(el, r, rAnt, ini, fim, dias) {
       <div class="kpi kpi-contas"><small>Gasto médio por dia</small><b>${brl(mediaDia)}</b><span>${dias} dia(s) no período</span></div>
     </section>
     <div class="grade2">
-      <section class="cartao-bloco"><h2>Gastos por grupo</h2>${rosca(grupos, { centro: brl(r.despesas), sub: 'gastos' })}</section>
+      <section class="cartao-bloco"><h2>Gastos por grupo</h2>${rosca(grupos, { centro: brl(r.despesas), sub: 'gastos' })}${semCatHTML(ini, fim)}</section>
       <section class="cartao-bloco"><h2>Top 6 categorias de gasto</h2>${barrasH(topCategorias(r, 'saida', 6))}</section>
       <section class="cartao-bloco span2"><h2>Ganhos × gastos em ${ano}</h2>
         ${barras(MESES_CURTOS, [{ nome: 'Ganhos', cor: 'var(--verde)', valores: serie.map((x) => x.receitas) }, { nome: 'Gastos', cor: 'var(--vermelho)', valores: serie.map((x) => x.despesas) }],
@@ -77,9 +80,22 @@ function visao(el, r, rAnt, ini, fim, dias) {
     </div>`;
 }
 
+// v1.6.7: atalho para a lista dos lançamentos sem categoria do período (abre em Lançamentos, já filtrada)
+function semCategoria(ini, fim) {
+  return S.lancs.filter((l) => (l.tipo === 'entrada' || l.tipo === 'saida') && !l.categoria_id && l.data_pagamento >= ini && l.data_pagamento <= fim);
+}
+function semCatHTML(ini, fim) {
+  const ls = semCategoria(ini, fim);
+  if (!ls.length) return '';
+  const g = ls.filter((l) => l.tipo === 'saida'), r = ls.filter((l) => l.tipo === 'entrada');
+  const soma = (a) => brl(a.reduce((s, l) => s + Number(l.valor), 0));
+  const partes = [g.length ? `${g.length} gasto(s) ${soma(g)}` : '', r.length ? `${r.length} receita(s) ${soma(r)}` : ''].filter(Boolean).join(' · ');
+  return `<button class="btn btn-peq sem-cat-atalho" data-acao="semcat">❔ Sem categoria: ${partes} — classificar →</button>`;
+}
+
 function topCategorias(r, tipo, n) {
   return [...r.porCategoria.values()].filter((x) => x.tipo === tipo).sort((a, b) => b.total - a.total).slice(0, n)
-    .map((x, i) => ({ rotulo: x.categoria ? `${x.categoria.emoji} ${x.categoria.nome}` : 'Sem categoria', valor: x.total, extra: `${x.qtd}x`, cor: x.categoria ? PALETA[i % PALETA.length] : COR_SEM_CATEGORIA }));
+    .map((x, i) => ({ rotulo: x.categoria ? `${x.categoria.emoji} ${x.categoria.nome}` : 'Sem categoria', valor: x.total, extra: `${x.qtd}x`, cor: x.categoria ? PALETA[i % PALETA.length] : COR_SEM_CATEGORIA, acao: x.categoria ? null : 'semcat' }));
 }
 
 // ---------------- Gastos ----------------
@@ -105,7 +121,7 @@ function gastos(el, r, rAnt, ini, fim, ia) {
           <tbody>${porCat.map((x) => {
             const antes = antPorCat.get(x.categoria?.id || 'sem') || 0;
             const lim = Number(x.categoria?.valor_mensal || 0) * (S.mes ? 1 : 12);
-            return `<tr><td>${esc(x.categoria ? `${x.categoria.emoji} ${x.categoria.nome}` : 'Sem categoria')}</td><td class="num"><b>${brl(x.total)}</b></td>
+            return `<tr ${x.categoria ? '' : 'data-acao="semcat" class="clicavel" title="Ver a lista para classificar"'}><td>${x.categoria ? esc(`${x.categoria.emoji} ${x.categoria.nome}`) : '❔ Sem categoria <small>(ver lista →)</small>'}</td><td class="num"><b>${brl(x.total)}</b></td>
               <td class="num opc">${brl(antes)}</td><td class="num">${selo(variacao(x.total, antes), { inverso: true })}</td>
               <td class="num opc">${pct(x.total / (r.despesas || 1))}</td><td class="num opc ${lim && x.total > lim ? 'neg' : ''}">${lim ? brl(lim) : '—'}</td></tr>`;
           }).join('') || '<tr><td colspan="6" class="dica">Sem gastos no período.</td></tr>'}</tbody>
