@@ -295,7 +295,11 @@ function preparar() {
     } else {
       const conta = contaPorId(cfg.destId);
       const sinal = r.sinal !== undefined ? r.sinal : (r.sinalBruto || -1);
-      const tipoPadrao = pareceTransfPropria(r.descricao) ? 'transferencia' : sinal > 0 ? 'entrada' : (pareceFatura(r.descricao) ? 'pagamento_fatura' : 'saida');
+      // PIX com o seu nome só vira transferência se o mesmo valor aparecer, em sentido contrário, noutra conta cadastrada
+      // (até 3 dias de diferença). Sem esse par, o dinheiro foi para uma conta fora do app (ex.: Sicoob, Caixa) = gasto/receita.
+      const par = pareceTransfPropria(r.descricao) ? parTransferencia(conta, r, sinal) : null;
+      if (par) e.conta_outra = e.conta_outra || par;
+      const tipoPadrao = par ? 'transferencia' : sinal > 0 ? 'entrada' : (pareceFatura(r.descricao) ? 'pagamento_fatura' : 'saida');
       const tipo = e.tipo || tipoPadrao;
       let cartaoPag = null;
       if (tipo === 'pagamento_fatura') {
@@ -372,6 +376,18 @@ function preparar() {
   }
   imp.linhas = linhas;
   imp.faltando = faltando;
+}
+
+/** Conta cadastrada onde o mesmo PIX aparece do outro lado (valor igual, sentido contrário, até 3 dias); null se não houver */
+function parTransferencia(conta, r, sinal) {
+  const v = Math.abs(arred(r.valor)), entrou = sinal > 0;
+  const ini = somarDias(r.data, -3), fim = somarDias(r.data, 3);
+  const x = S.lancs.find((l) => !l.cartao_id && l.data_movimento >= ini && l.data_movimento <= fim && Math.abs(Number(l.valor) - v) < 0.005 &&
+    ((l.conta_id && l.conta_id !== conta.id && l.tipo === (entrou ? 'saida' : 'entrada')) ||
+     (l.tipo === 'transferencia' && (entrou ? l.conta_destino_id === conta.id : l.conta_id === conta.id))));
+  if (!x) return null;
+  if (x.tipo === 'transferencia') return entrou ? x.conta_id : x.conta_destino_id;
+  return x.conta_id;
 }
 
 /** +1 se o lançamento aumenta o saldo desta conta, −1 se diminui */
@@ -462,7 +478,7 @@ function renderPrevia(el) {
         ${futuras ? `<li>📅 ${futuras} parcela(s) futura(s) serão criadas nas próximas faturas.</li>` : ''}
         ${semCat ? `<li>🏷️ ${semCat} sem categoria (ficam como “A classificar”).</li>` : ''}
         ${cfg.destTipo === 'conta' ? `<li>🔁 ${transfs ? `<b>${transfs}</b> PIX/TED entre as suas contas viram <b>transferência</b> (não contam como gasto nem receita).` : 'Nenhum PIX/TED entre as suas contas neste arquivo.'}
-          Seu nome nos extratos: <b>${esc(nomes.join(', ') || '—')}</b> <button class="btn-link" data-nomes>mudar</button></li>` : ''}
+          Só vira transferência quando o mesmo valor aparece numa outra conta cadastrada; PIX para conta fora do app (ex.: Sicoob, Caixa) continua gasto/receita. Seu nome nos extratos: <b>${esc(nomes.join(', ') || '—')}</b> <button class="btn-link" data-nomes>mudar</button></li>` : ''}
         ${lido.avisos.length ? `<li>ℹ️ ${lido.avisos.length} linha(s) do arquivo não puderam ser lidas.</li>` : ''}
       </ul>
       ${[...imp.faltando.categoria.keys()].length ? `<div class="aviso">Categorias que não existem no app: <b>${[...imp.faltando.categoria.entries()].map(([n, q]) => `${esc(n)} (${q})`).join(', ')}</b>. Crie em Cadastros e leia o arquivo de novo.</div>` : ''}

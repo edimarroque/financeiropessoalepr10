@@ -3,7 +3,7 @@ export const VERSOES = [
   {
     versao: '1.6.7', data: '2026-11-27', titulo: 'Importação mais certa e filtros novos',
     novidades: [
-      '🔁 PIX/TED entre as suas próprias contas (ex.: “PIX TRANSF EDIMAR”) agora entra como transferência entre contas na importação do extrato — não conta como gasto nem receita. A outra conta é escolhida sozinha (dá para trocar na prévia) e o mesmo PIX no extrato da outra conta é reconhecido como já importado. O nome que identifica você nos extratos pode ser ajustado na prévia (“mudar”).',
+      '🔁 PIX/TED entre as suas contas cadastradas no app agora entra como transferência na importação do extrato — não conta como gasto nem receita. A outra conta é achada sozinha (dá para trocar na prévia) e o mesmo PIX no extrato da outra conta é reconhecido como já importado. O nome que identifica você nos extratos pode ser ajustado na prévia (“mudar”).',
       '🏦 Saldo do banco preenchido sozinho: o saldo final do extrato (PDF ou OFX) fica gravado como saldo do banco na conferência da conta. A prévia já mostra se ele bate com o saldo do app depois de importar; diferença só avisa, nada é corrigido sozinho.',
       '💳 Pagamento de fatura com valor diferente do total (parcial, ou fatura ainda não importada): escolha a fatura à mão na prévia ou abrindo o pagamento. Cartões mostra “Paga parcialmente — falta R$ X” e quanto já foi pago. Pagamentos vindos da planilha/CSV do app também ficam ligados à fatura.',
       '❔ Filtro “Sem categoria” em Lançamentos (com a quantidade). Nos Dashboards, tocar em “Sem categoria” no gráfico, na lista ou no botão “classificar →” abre a lista desses lançamentos para editar categoria, descrição e tags.',
@@ -11,6 +11,7 @@ export const VERSOES = [
       '💡 Sugestões de melhorias: seta no título para recolher/mostrar a seção inteira e botão para abrir ou recolher todos os grupos de uma vez. A escolha fica guardada.',
     ],
     correcoes: [
+      'PIX com o seu nome (ex.: “PIX TRANSF EDIMAR”) só vira transferência quando o mesmo valor aparece, em sentido contrário, em outra conta cadastrada no app (até 3 dias de diferença). PIX para conta fora do app (ex.: Sicoob, Caixa usadas só no débito) continua como gasto ou receita.',
       'Total da importação de extrato com sinal invertido (ex.: aparecia −R$ 2.555,77 quando o período teve +R$ 2.555,77). Agora mostra “Entradas − saídas” com o sinal certo, também na lista “Importações feitas” (os dados gravados não mudaram, só a exibição).',
     ],
   },

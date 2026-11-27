@@ -16,8 +16,8 @@ def api(route):
     req = route.request
     if '/api/ler-pdf' not in req.url:
         return route.fulfill(status=200, content_type='application/json', body='{"ok":true}')
-    j = {'modelo': 'gemini-teste', 'saldoInicial': 500, 'saldoFinal': 1362.90, 'periodoInicio': '2026-11-01', 'periodoFim': '2026-11-20',
-         'lancamentos': [L('2026-11-05', 'PIX TRANSF EDIMAR', -50), L('2026-11-06', 'PIX TRANSF EDIMAR 06 11', 42.90),
+    j = {'modelo': 'gemini-teste', 'saldoInicial': 500, 'saldoFinal': 1342.90, 'periodoInicio': '2026-11-01', 'periodoFim': '2026-11-20',
+         'lancamentos': [L('2026-11-05', 'PIX TRANSF EDIMAR', -50), L('2026-11-07', 'PIX TRANSF EDIMAR SICOOB', -20), L('2026-11-06', 'PIX TRANSF EDIMAR 06 11', 42.90),
                          L('2026-11-16', 'PAG BOLETO BANCO XP S.A', -100), L('2026-11-10', 'SUPERMERCADO BOM PRECO', -30),
                          L('2026-11-19', 'REMUNERACAO/SALARIO', 1000)]}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(j))
@@ -39,7 +39,12 @@ with sync_playwright() as p:
     page.evaluate("""() => { for (const c of window.__db.contas) { c.data_saldo = '2026-10-01'; c.saldo_inicial = c.nome === 'conta itau salario' ? 500 : 0; }
       const x = window.__db.cartoes.find(c => c.nome === 'Cartão XP');
       window.__db.lancamentos.push({ id: crypto.randomUUID(), user_id: 'user-1', tipo: 'saida', descricao: 'COMPRA XP', valor: 300,
-        data_movimento: '2026-10-20', data_pagamento: '2026-11-15', cartao_id: x.id, situacao: 'pendente', metodo: 'Crédito', tags: [] }); }""")
+        data_movimento: '2026-10-20', data_pagamento: '2026-11-15', cartao_id: x.id, situacao: 'pendente', metodo: 'Crédito', tags: [] });
+      // o outro lado dos 2 PIX já está no extrato da conta pessoal; o de R$ 20 (Sicoob) não tem par
+      const pes = window.__db.contas.find(c => c.nome === 'conta itau pessoal');
+      const add = (d, t, v) => window.__db.lancamentos.push({ id: crypto.randomUUID(), user_id: 'user-1', tipo: t, descricao: 'PIX TRANSF EDIMAR', descricao_original: 'PIX TRANSF EDIMAR',
+        valor: v, data_movimento: d, data_pagamento: d, conta_id: pes.id, situacao: 'pago', tags: [] });
+      add('2026-11-05', 'entrada', 50); add('2026-11-06', 'saida', 42.90); }""")
     page.locator('[data-atualizar-dados]').first.click(); page.wait_for_timeout(500)
 
     # ---- prévia do extrato ----
@@ -55,17 +60,18 @@ with sync_playwright() as p:
     pix = page.locator('.imp-linha', has_text='PIX TRANSF EDIMAR').first
     expect(pix.locator('[data-tipo]')).to_have_value('transferencia')
     expect(pix.locator('[data-outra] option:checked')).to_contain_text('conta itau pessoal')
-    # sinal certo: +500 entradas (1042,90) − saídas (180) = +862,90
-    expect(page.locator('.resumo-linha')).to_contain_text('+R$ 862,90')
-    expect(page.locator('#tela')).to_contain_text('Saldo final menos saldo inicial no PDF: R$ 862,90')
-    expect(page.locator('#tela')).to_contain_text('Saldo final do extrato em 20/11/2026: R$ 1.362,90 · no app depois de importar: R$ 1.362,90 ✅ bate')
+    expect(page.locator('.imp-linha', has_text='SICOOB').locator('[data-tipo]')).to_have_value('saida')
+    # sinal certo: +500 entradas (1042,90) − saídas (180) = +842,90
+    expect(page.locator('.resumo-linha')).to_contain_text('+R$ 842,90')
+    expect(page.locator('#tela')).to_contain_text('Saldo final menos saldo inicial no PDF: R$ 842,90')
+    expect(page.locator('#tela')).to_contain_text('Saldo final do extrato em 20/11/2026: R$ 1.342,90 · no app depois de importar: R$ 1.342,90 ✅ bate')
     # pagamento parcial da fatura XP
     pag = page.locator('.imp-linha', has_text='BANCO XP')
     expect(pag).to_contain_text('Paga parcialmente a fatura de 15/11/2026 (R$ 300,00) — falta R$ 200,00')
     expect(pag.locator('[data-fatura]')).to_have_value('2026-11-15')
     page.screenshot(path='/tmp/prints_v167/previa_1280.png', full_page=True)
     page.click('[data-importar]')
-    expect(page.get_by_text('5 lançamento(s) importado(s).').last).to_be_visible()
+    expect(page.get_by_text('6 lançamento(s) importado(s).').last).to_be_visible()
 
     db = page.evaluate("""() => { const n = id => (window.__db.contas.find(c => c.id === id) || {}).nome;
       const ls = window.__db.lancamentos.filter(l => l.lote_id);
@@ -74,8 +80,8 @@ with sync_playwright() as p:
                pg: ls.filter(l => l.tipo === 'pagamento_fatura').map(l => l.fatura_venc), conf: [sal.conferido_em, sal.conferido_saldo] }; }""")
     assert db['tr'] == [[42.9, 'conta itau pessoal', 'conta itau salario'], [50, 'conta itau salario', 'conta itau pessoal']], db
     assert db['pg'] == ['2026-11-15'], db
-    assert db['conf'] == ['2026-11-20', 1362.9], db
-    expect(page.locator('#tela')).to_contain_text('+R$ 862,90 no período')
+    assert db['conf'] == ['2026-11-20', 1342.9], db
+    expect(page.locator('#tela')).to_contain_text('+R$ 842,90 no período')
 
     # ---- Cartões: pagamento parcial ----
     ir(page, 'cartoes')
@@ -96,13 +102,13 @@ with sync_playwright() as p:
     page.select_option('[data-f=categoria]', '__sem__')
     expect(page.locator('#tela')).to_contain_text('Receitas e despesas sem categoria')
     assert page.locator('.lista .item').count() >= 1
-    assert page.locator('.lista .item', has_text='PIX TRANSF').count() == 0  # transferência não precisa de categoria
+    assert page.locator('.lista .item', has_text='PIX TRANSF').count() == 3  # 2 da pessoal + Sicoob; as 2 transferências não aparecem
     page.select_option('[data-f=categoria]', '')
     page.locator('details.filtros summary').click()
     page.fill('[data-f=de]', '2026-10-15'); page.locator('[data-f=de]').dispatch_event('change')
     page.fill('[data-f=ate]', '2026-11-06'); page.locator('[data-f=ate]').dispatch_event('change')
     expect(page.locator('#tela')).to_contain_text('de 15/10/2026 a 06/11/2026')
-    assert page.locator('.lista .item').count() == 3, page.locator('.lista .item').count()  # COMPRA XP + 2 PIX
+    assert page.locator('.lista .item').count() == 5, page.locator('.lista .item').count()  # COMPRA XP + 2 PIX + 2 PIX da pessoal (Sicoob é 07/11)
     page.screenshot(path='/tmp/prints_v167/lancamentos_datas_1280.png', full_page=True)
     page.click('[data-limpar-datas]')
 
