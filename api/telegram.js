@@ -7,7 +7,7 @@ import { vencimentoDaCompra, gerarParcelas, hoje, mesDe, fmtData, nomeMes, somar
 import { numerosDoMes } from '../js/relatorio.js';
 import { enviarRelatorio } from './_envios.js';
 import { contextoIA } from '../js/contexto-ia.js';
-import { responderLocal, lancamentoLocal, buscar, norm } from './_perguntas.js';
+import { responderLocal, lancamentoLocal, buscar, norm, chaveModelo, responderModelo, TIPOS_MODELO } from './_perguntas.js';
 import crypto from 'node:crypto';
 
 const fmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -152,32 +152,64 @@ async function cmdContas(ctx, chat) {
 
 const DICA_SEM_IA = 'Sem IA você pode perguntar, por exemplo:\n• <i>oral dents até quando?</i>\n• <i>quais parcelas tenho?</i>\n• <i>quanto gastei com mercado mês passado?</i>\n• <i>busca uber</i>\nOu use /resumo · /saldo · /faturas · /contas';
 
-/** 1º tenta responder com os próprios dados (sem IA, na hora); só perguntas abertas vão para o Gemini */
+/** Resposta do Gemini para pergunta nova: o texto + qual consulta sem IA responde perguntas iguais (para aprender) */
+const SCHEMA_PERGUNTA = {
+  type: 'OBJECT', required: ['resposta', 'tipo'],
+  properties: {
+    resposta: { type: 'STRING' },
+    tipo: { type: 'STRING', enum: TIPOS_MODELO },
+    termo: { type: 'STRING' },
+  },
+};
+const INSTRUCAO_MODELO = `Além de responder, classifique a pergunta no campo "tipo" pela consulta que a responde só com os dados:
+gastos (quanto gastei, opcional com loja/categoria em "termo"), receitas (quanto recebi), parcelas (parcelamentos / até quando, loja em "termo"),
+busca (listar lançamentos de uma loja/palavra em "termo"), saldo, faturas, contas (contas a pagar/vencimentos), resumo (resumo do mês),
+ou aberta (conselho, análise, comparação, previsão ou qualquer coisa que as anteriores não respondem).
+"termo" = só o nome da loja/categoria/palavra (ex.: "uber", "mercado"), sem período e sem palavras como gasto/quanto; vazio se não houver.`;
+
+/** Ordem: 1) regras sem IA (desde a v1.6.1) · 2) modelo aprendido · 3) Gemini só para pergunta nova (e aprende o modelo) */
 async function responderPergunta(ctx, chat, pergunta) {
   await tg(ctx.token, 'sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
   const d = await dadosRecentes(ctx, 13);
-  const local = responderLocal(d, pergunta);
   const cmds = { saldo: cmdSaldo, faturas: cmdFaturas, contas: cmdContas, resumo: cmdResumo };
-  if (local?.comando) return cmds[local.comando](ctx, chat, '');
-  if (local?.texto) {
-    await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: local.texto.slice(0, 3900) });
+  const enviarLocal = async (local, rodape = '') => {
+    if (local?.comando) { await cmds[local.comando](ctx, chat, ''); if (rodape) await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: rodape }); return true; }
+    if (!local?.texto) return false;
+    await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML', text: (local.texto + (rodape ? `\n\n${rodape}` : '')).slice(0, 3900) });
     if (local.depois) await cmds[local.depois](ctx, chat, '');
-    return;
+    return true;
+  };
+  if (await enviarLocal(responderLocal(d, pergunta))) return;
+
+  const chave = chaveModelo(pergunta);
+  if (chave.length >= 3) {
+    const modelo = await srv('srv_pergunta_usar', { p_user: ctx.user_id, p_chave: chave }).catch(() => null);
+    if (modelo && await enviarLocal(responderModelo(d, modelo, pergunta))) return;
   }
 
   const contexto = contextoIA(d, { meses: 6, lancamentosDias: 75 });
+  let json;
   try {
-    const { texto } = await gemini([{ text: pergunta.slice(0, 2000) }], {
-      sistema: SISTEMA + '\nVocê está no Telegram: responda em até 10 linhas, texto simples (sem markdown).',
+    ({ json } = await gemini([{ text: pergunta.slice(0, 2000) }], {
+      schema: SCHEMA_PERGUNTA,
+      sistema: SISTEMA + '\nVocê está no Telegram: no campo "resposta" responda em até 10 linhas, texto simples (sem markdown).\n' + INSTRUCAO_MODELO,
       historico: [{ role: 'user', parts: [{ text: `DADOS FINANCEIROS:\n${contexto}` }] }, { role: 'model', parts: [{ text: 'Entendido.' }] }], temperatura: 0.4,
-    });
-    await tg(ctx.token, 'sendMessage', { chat_id: chat, text: `🤖 ${texto.slice(0, 3900)}` });
+    }));
   } catch (e) {
     if (!e.iaIndisponivel) throw e;
     const achados = buscar(d, norm(pergunta).split(' ').filter((p) => p.length >= 4).join(' '));
     await tg(ctx.token, 'sendMessage', { chat_id: chat, parse_mode: 'HTML',
       text: `⚠️ ${escHtml(e.message)}\n\n${achados ? `Enquanto isso, achei nos seus dados:\n${achados}\n\n` : ''}${DICA_SEM_IA}`.slice(0, 3900) });
+    return;
   }
+  const modelo = { tipo: TIPOS_MODELO.includes(json?.tipo) ? json.tipo : 'aberta', termo: String(json?.termo || '').slice(0, 60) };
+  const local = modelo.tipo !== 'aberta' && chave.length >= 3 ? responderModelo(d, modelo, pergunta) : null;
+  if (local) {
+    // a resposta vem das contas do app (valores exatos); o modelo fica gravado para a próxima vez não usar IA
+    await srv('srv_pergunta_salvar', { p_user: ctx.user_id, p_item: { chave, pergunta: pergunta.slice(0, 300), ...modelo } }).catch(() => {});
+    if (await enviarLocal(local, '🧠 <i>Aprendi esta pergunta: da próxima vez respondo sem IA.</i>')) return;
+  }
+  await tg(ctx.token, 'sendMessage', { chat_id: chat, text: `🤖 ${String(json?.resposta || 'Não consegui responder agora.').slice(0, 3900)}` });
 }
 
 function ehPergunta(t) {

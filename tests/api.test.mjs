@@ -26,6 +26,7 @@ globalThis.fetch = async (url, op = {}) => {
   if (url.includes('/rpc/srv_tg_contexto')) return ok(ctx);
   if (url.includes('/rpc/srv_inserir_lancamentos')) return ok({ lote_id: 'lote-1', ids: body.p_linhas.map((_, i) => 'id' + i) });
   if (url.includes('/rpc/srv_dados')) return ok(dados);
+  if (url.includes('/rpc/srv_pergunta_usar')) return ok(globalThis.modeloAprendido || null);
   if (url.includes('/rpc/srv_integracoes')) return ok([{ user_id: 'u1-aaaaaaaa', telegram_token: '123:ABC', telegram_chat_id: 99, avisos_ativos: true, avisos_dias: 3, relatorio_mensal: true, backup_semanal: true, drive_url: null }]);
   if (url.includes('/rpc/')) return ok(null);
   if (url.includes('generativelanguage') && statusGemini !== 200) return { ok: false, status: statusGemini, json: async () => ({}), text: async () => '{"error":{"code":' + statusGemini + '}}' };
@@ -83,7 +84,7 @@ await telegram(req({ message: { chat: { id: 99 }, text: 'qual meu saldo?' } }), 
 assert.ok(!usouIA()); assert.match(ultimaMsg(), /Saldo hoje/);
 
 // 3b) pergunta aberta vai para a IA com os dados
-chamadas.length = 0; respostaGemini = 'Corte o delivery.';
+chamadas.length = 0; respostaGemini = { resposta: 'Corte o delivery.', tipo: 'aberta', termo: '' };
 await telegram(req({ message: { chat: { id: 99 }, text: 'onde posso economizar?' } }), res());
 assert.ok(usouIA()); assert.match(ultimaMsg(), /Corte o delivery/);
 assert.match(JSON.stringify(chamadas.find((c) => c.url.includes('generativelanguage')).body), /MERCADO/);
@@ -132,6 +133,29 @@ chamadas.length = 0; r = res();
 await cron({ headers: { authorization: 'Bearer ' + 'c'.repeat(64) }, query: { tarefa: 'avisos' } }, r);
 assert.equal(r.code, 200, JSON.stringify(r.body));
 assert.match(chamadas.find((c) => c.url.includes('sendMessage')).body.text, /LUZ/);
+// v1.6.8 bot que aprende: pergunta nova → Gemini classifica → resposta sem IA + modelo salvo; repetição (outro mês) → sem Gemini
+{
+  chamadas.length = 0; globalThis.modeloAprendido = null;
+  respostaGemini = { resposta: 'Você gastou R$ 50 no mercado.', tipo: 'gastos', termo: 'mercado' };
+  let r2 = res(); await telegram(req({ message: { chat: { id: 99 }, text: 'qto saiu de mercadinho em novembro?' } }), r2);
+  assert.ok(chamadas.some((c) => c.url.includes('generativelanguage')), 'pergunta nova vai ao Gemini');
+  const salvo = chamadas.find((c) => c.url.includes('srv_pergunta_salvar'));
+  assert.ok(salvo, 'modelo salvo'); assert.equal(salvo.body.p_item.tipo, 'gastos'); assert.equal(salvo.body.p_item.chave, 'qto saiu de mercadinho');
+  let m = chamadas.filter((c) => c.url.includes('sendMessage')).pop().body.text;
+  assert.match(m, /Mercado/); assert.match(m, /Aprendi/);
+  chamadas.length = 0; globalThis.modeloAprendido = { tipo: 'gastos', termo: 'mercado' };
+  r2 = res(); await telegram(req({ message: { chat: { id: 99 }, text: 'qto saiu de mercadinho em outubro?' } }), r2);
+  assert.ok(!chamadas.some((c) => c.url.includes('generativelanguage')), 'repetição sem IA');
+  assert.equal(chamadas.find((c) => c.url.includes('srv_pergunta_usar')).body.p_chave, 'qto saiu de mercadinho');
+  assert.match(chamadas.filter((c) => c.url.includes('sendMessage')).pop().body.text, /outubro|Outubro/i);
+  // pergunta aberta: Gemini responde e nada é salvo
+  chamadas.length = 0; globalThis.modeloAprendido = null;
+  respostaGemini = { resposta: 'Corte o delivery.', tipo: 'aberta', termo: '' };
+  r2 = res(); await telegram(req({ message: { chat: { id: 99 }, text: 'como faço pra sobrar mais no fim do mês?' } }), r2);
+  assert.ok(!chamadas.some((c) => c.url.includes('srv_pergunta_salvar')));
+  assert.match(chamadas.filter((c) => c.url.includes('sendMessage')).pop().body.text, /delivery/);
+  globalThis.modeloAprendido = null;
+}
 console.log('API OK');
 // relatório e contexto da IA
 {

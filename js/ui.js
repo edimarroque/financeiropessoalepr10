@@ -5,7 +5,8 @@ export function esc(v) {
 }
 
 const fmtBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-export const brl = (v) => fmtBRL.format(Number(v) || 0);
+import { privado, OCULTO } from './privacidade.js';
+export const brl = (v) => (privado() ? OCULTO : fmtBRL.format(Number(v) || 0));
 export const pct = (v) => `${(Number(v) * 100 || 0).toFixed(0)}%`;
 
 // Converte "1.234,56" ou "1234.56" em número

@@ -121,7 +121,7 @@ with sync_playwright() as p:
     # ---- Novidades compacto ----
     ir(page, 'novidades')
     v = page.locator('details.versao.atual')
-    expect(v.locator('.versao-tag')).to_have_text('v1.6.7')
+    expect(v.locator('.versao-tag')).to_have_text('v1.6.8')
     expect(page.locator('details.versao:not(.atual)').first.locator('h3').first).to_be_hidden()
     page.locator('details.versao').nth(1).locator('summary').click()
     expect(page.locator('details.versao').nth(1).locator('h3').first).to_be_visible()

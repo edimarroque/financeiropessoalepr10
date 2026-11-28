@@ -696,3 +696,48 @@ update public.lancamentos set descricao_original = descricao where descricao_ori
 alter table public.lancamentos add column if not exists fatura_venc date;
 comment on column public.lancamentos.fatura_venc is 'Só em pagamento_fatura: vencimento da fatura que este pagamento quita';
 -- (na migração também foram ligados os pagamentos antigos: pela chave pgto: ou pelo valor = total da fatura, e os itens marcados como pagos)
+
+-- v1.6.8: bot que aprende — modelos de consulta criados a partir de perguntas novas respondidas pelo Gemini
+create table if not exists public.perguntas_aprendidas (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  chave      text not null,
+  pergunta   text not null default '',
+  tipo       text not null check (tipo in ('gastos','receitas','parcelas','busca','saldo','faturas','contas','resumo')),
+  termo      text not null default '',
+  usos       integer not null default 0,
+  ultimo_uso timestamptz,
+  created_at timestamptz not null default now(),
+  unique (user_id, chave)
+);
+alter table public.perguntas_aprendidas enable row level security;
+drop policy if exists perguntas_aprendidas_dono on public.perguntas_aprendidas;
+create policy perguntas_aprendidas_dono on public.perguntas_aprendidas for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on public.perguntas_aprendidas from anon, public;
+grant select, insert, update, delete on public.perguntas_aprendidas to authenticated;
+
+create or replace function public.srv_pergunta_usar(p_segredo text, p_user uuid, p_chave text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare v jsonb;
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  update public.perguntas_aprendidas set usos = usos + 1, ultimo_uso = now()
+   where user_id = p_user and chave = p_chave
+  returning jsonb_build_object('tipo', tipo, 'termo', termo) into v;
+  return v;
+end $$;
+
+create or replace function public.srv_pergunta_salvar(p_segredo text, p_user uuid, p_item jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not privado.segredo_ok(p_segredo) then raise exception 'não autorizado'; end if;
+  insert into public.perguntas_aprendidas (user_id, chave, pergunta, tipo, termo)
+  values (p_user, left(p_item->>'chave', 200), left(coalesce(p_item->>'pergunta', ''), 300), p_item->>'tipo', left(coalesce(p_item->>'termo', ''), 60))
+  on conflict (user_id, chave) do update set tipo = excluded.tipo, termo = excluded.termo, pergunta = excluded.pergunta;
+end $$;
+
+revoke execute on function public.srv_pergunta_usar(text,uuid,text) from public, authenticated;
+revoke execute on function public.srv_pergunta_salvar(text,uuid,jsonb) from public, authenticated;
+grant execute on function public.srv_pergunta_usar(text,uuid,text) to anon;
+grant execute on function public.srv_pergunta_salvar(text,uuid,jsonb) to anon;

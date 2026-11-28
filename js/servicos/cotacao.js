@@ -27,5 +27,5 @@ function salvar() { try { localStorage.setItem('cotacaoUSD', JSON.stringify(cach
 export const emReais = (valor, moeda = 'BRL') => (moeda === 'USD' ? Math.round(Number(valor) * cotacaoUSD() * 100) / 100 : Number(valor));
 
 const fmtUSD = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' });
-export const usd = (v) => fmtUSD.format(Number(v) || 0);
-export const moedaFmt = (v, moeda) => (moeda === 'USD' ? usd(v) : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0));
+export const usd = (v) => (globalThis.__privacidade ? 'US$ ***' : fmtUSD.format(Number(v) || 0));
+export const moedaFmt = (v, moeda) => (moeda === 'USD' ? usd(v) : globalThis.__privacidade ? 'R$ ***' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0));

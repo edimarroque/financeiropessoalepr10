@@ -2,6 +2,7 @@
 import * as db from './db.js';
 import { S, recarregarTudo } from './state.js';
 import { esc, toast, comCarregando, modal } from './ui.js';
+import { privado, alternarPrivacidade } from './privacidade.js';
 import * as painel from './views/painel.js';
 import * as lancamentos from './views/lancamentos.js';
 import * as cartoes from './views/cartoes.js';
@@ -100,6 +101,15 @@ function ligarAtualizar() {
   // o botão entra no topo de cada tela (as telas se redesenham sozinhas, então ele é recolocado quando some)
   const colocar = () => {
     const topo = tela.querySelector(':scope > .topo-tela');
+    if (topo && !topo.querySelector('[data-privacidade]')) {
+      const o = document.createElement('button');
+      o.className = 'btn-icone btn-privacidade'; o.dataset.privacidade = ''; o.type = 'button';
+      const rot = () => { const p = privado(); o.textContent = p ? '🙈' : '👁️'; o.title = p ? 'Mostrar valores' : 'Ocultar valores (modo privacidade)';
+        o.setAttribute('aria-label', o.title); o.setAttribute('aria-pressed', String(p)); };
+      rot();
+      o.onclick = () => { alternarPrivacidade(); desenhar(); };
+      topo.appendChild(o);
+    }
     if (topo && !topo.querySelector('[data-atualizar-dados]')) {
       const b = document.createElement('button');
       b.className = 'btn-icone btn-atualizar'; b.dataset.atualizarDados = ''; b.type = 'button';

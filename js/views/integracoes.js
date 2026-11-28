@@ -32,7 +32,10 @@ export function render(el) {
       <div class="cab-lista"><h2>✈️ Bot do Telegram</h2><span class="pill">${tgOk ? `✅ conectado @${esc(i.telegram_bot || '')}` : tgMeio ? '⏳ falta iniciar o bot' : 'não conectado'}</span></div>
       <p class="dica">Lance gastos escrevendo (“mercado 87,50 débito”) ou mandando a foto do cupom, envie PDFs de faturas para a Caixa de entrada e faça perguntas (“quanto gastei com mercado?”). Receba avisos de vencimento e o relatório do mês.</p>
       ${tgOk ? `<div class="acoes"><button class="btn btn-peq" data-tg-testar>📨 Enviar teste</button><a class="btn btn-peq" href="https://t.me/${esc(i.telegram_bot || '')}" target="_blank" rel="noopener">Abrir o bot</a>
-          <span class="espaco"></span><button class="btn btn-peq btn-perigo" data-tg-sair>Desconectar</button></div>`
+          <span class="espaco"></span><button class="btn btn-peq btn-perigo" data-tg-sair>Desconectar</button></div>
+        <details class="mt" data-aprendidas><summary>🧠 Perguntas que o bot aprendeu</summary>
+          <p class="dica">Pergunta nova vai ao Gemini uma vez e vira um modelo de consulta. Quando você pergunta de novo (mesmo com outro mês), a resposta sai na hora, sem IA, com os dados atuais. Apague um modelo se a resposta não for a que você queria.</p>
+          <div data-aprendidas-lista><p class="dica">Carregando…</p></div></details>`
       : `<ol class="lista-simples">
           <li>No Telegram, abra o <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, envie <b>/newbot</b>, escolha um nome (ex.: Financeiro Edimar) e um usuário terminado em <i>bot</i>.</li>
           <li>Copie o <b>token</b> que ele mandar e cole aqui:</li></ol>
@@ -83,6 +86,19 @@ export function render(el) {
     if (S.integracao?.telegram_chat_id) { linkTg = null; toast('✅ Telegram conectado!'); } else toast('Ainda não recebi o “Iniciar”. Abra o bot e toque em Iniciar.', 'erro');
     rerender();
   });
+  const NOME_TIPO = { gastos: 'quanto gastei', receitas: 'quanto recebi', parcelas: 'parcelas', busca: 'busca', saldo: 'saldo', faturas: 'faturas', contas: 'contas a pagar', resumo: 'resumo do mês' };
+  const caixaAprend = el.querySelector('[data-aprendidas]');
+  const listarAprendidas = async () => {
+    const alvo = el.querySelector('[data-aprendidas-lista]');
+    try {
+      const itens = await db.listar('perguntas_aprendidas', 'created_at', false);
+      alvo.innerHTML = itens.length ? `<ul class="lista-simples">${itens.map((q) => `<li>“${esc(q.pergunta)}” → <b>${esc(NOME_TIPO[q.tipo] || q.tipo)}</b>${q.termo ? ` de <i>${esc(q.termo)}</i>` : ''}
+          <small class="suave">· usada ${q.usos}x sem IA</small> <button class="btn-icone" data-apagar-aprend="${esc(q.id)}" title="Apagar modelo" aria-label="Apagar modelo">🗑️</button></li>`).join('')}</ul>`
+        : '<p class="dica">Nenhuma ainda. Faça uma pergunta nova no bot.</p>';
+      alvo.querySelectorAll('[data-apagar-aprend]').forEach((b) => b.onclick = async () => { await db.excluir('perguntas_aprendidas', b.dataset.apagarAprend); toast('Modelo apagado.'); listarAprendidas(); });
+    } catch (e) { alvo.innerHTML = `<p class="dica">Não consegui carregar: ${esc(e.message)}</p>`; }
+  };
+  caixaAprend?.addEventListener('toggle', () => { if (caixaAprend.open) listarAprendidas(); });
   el.querySelector('[data-tg-testar]')?.addEventListener('click', async (e) => { await comCarregando(e.currentTarget, () => chamarApi('telegram?acao=testar')); toast('Mensagem de teste enviada.'); });
   el.querySelector('[data-tg-sair]')?.addEventListener('click', async (e) => {
     if (!(await confirmar('Desconectar Telegram', 'O bot para de responder e de enviar avisos. Continuar?', [{ valor: 'sim', rotulo: 'Desconectar', classe: 'btn-perigo' }]))) return;

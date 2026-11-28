@@ -131,7 +131,7 @@ with sync_playwright() as p:
     assert page.evaluate("localStorage.getItem('sugRecolhida')") == 'true'
     page.click('[data-sug-secao]')
     expect(page.locator('.sug-form')).to_be_visible()
-    expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.7')
+    expect(page.locator('.versao.atual .versao-tag')).to_have_text('v1.6.8')
 
     br.close()
 os.remove(PDF)

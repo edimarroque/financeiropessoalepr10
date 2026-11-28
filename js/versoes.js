@@ -1,6 +1,17 @@
 // Histórico de versões (aparece na tela Novidades). A mais nova fica no topo.
 export const VERSOES = [
   {
+    versao: '1.6.8', data: '2026-11-28', titulo: 'Modo privacidade e bot que aprende',
+    novidades: [
+      '🙈 Modo privacidade: botão de olho no topo de cada tela oculta todos os valores (aparecem como R$ ***), também nos gráficos e na prévia do Relatório. Toque de novo para mostrar. A escolha fica guardada neste aparelho. O PDF impresso ou salvo no Drive continua com os valores.',
+      '🧠 Bot do Telegram que aprende: primeiro ele tenta as respostas sem IA de sempre. Se a pergunta for nova, vai ao Gemini uma vez, que diz qual consulta responde aquilo (gastos, recebidos, parcelas, busca, saldo, faturas, contas, resumo). A resposta sai das contas do próprio app e o modelo fica guardado: da próxima vez (mesmo trocando o mês, ex.: “em outubro” → “em setembro”) responde na hora, sem IA.',
+      '📋 Em Integrações → Telegram, “Perguntas que o bot aprendeu” mostra cada modelo, quantas vezes foi usado sem IA e permite apagar.',
+    ],
+    correcoes: [
+      'Perguntas abertas (dicas, análises, comparações) continuam indo ao Gemini a cada vez, porque a resposta depende de interpretação.',
+    ],
+  },
+  {
     versao: '1.6.7', data: '2026-11-27', titulo: 'Importação mais certa e filtros novos',
     novidades: [
       '🔁 PIX/TED entre as suas contas cadastradas no app agora entra como transferência na importação do extrato — não conta como gasto nem receita. A outra conta é achada sozinha (dá para trocar na prévia) e o mesmo PIX no extrato da outra conta é reconhecido como já importado. O nome que identifica você nos extratos pode ser ajustado na prévia (“mudar”).',
@@ -201,6 +212,6 @@ export const VERSOES = [
 ];
 
 export const PROXIMAS = [
-  '⏭️ v1.6.8: conferência pelo “saldo do dia” do extrato, total da fatura conferido com o PDF e prévia com OK / duplicado / faltando / diferença de saldo.',
+  '⏭️ v1.6.9: lançamentos manuais/Telegram “a confirmar” até aparecerem no extrato (sem duplicar) e aviso ao importar arquivo de antes de 30/09/2026 (período da planilha migrada).',
   '💡 Continue anotando ideias no campo “Sugestões de melhorias” acima — cada item vira uma versão nova.',
 ];

@@ -581,6 +581,10 @@ select.sugerida { border-color: var(--acento); }
 /* v1.6.3 — atualizar (botão e puxar para baixo) */
 .btn-atualizar { font-size: 1.25rem; color: var(--suave); }
 .topo-tela > .btn-atualizar { margin-left: auto; align-self: center; }
+.btn-privacidade { font-size: 1.15rem; }
+.topo-tela > .btn-privacidade { margin-left: auto; align-self: center; }
+.topo-tela > .btn-privacidade + .btn-atualizar { margin-left: 0; }
+body.modo-privado .btn-privacidade { color: var(--primaria, #2563eb); }
 body.atualizando .btn-atualizar { animation: girar .8s linear infinite; }
 @keyframes girar { to { transform: rotate(360deg); } }
 .ptr { position: fixed; top: -44px; left: 50%; transform: translateX(-50%); width: 38px; height: 38px; border-radius: 50%;

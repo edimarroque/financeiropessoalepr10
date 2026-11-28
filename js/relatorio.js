@@ -4,7 +4,8 @@ import { resumoMes, saldoConta, somarMesRef, nomeMes, fmtData, arred, GRUPOS_DES
   montar, partes, progressoMeta, hoje } from './calc.js';
 
 const fmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const brl = (v) => fmt.format(Number(v) || 0);
+let ocultarValores = false; // modo privacidade só na prévia da tela (o PDF salvo/impresso sai com os valores)
+const brl = (v) => (ocultarValores ? 'R$ ***' : fmt.format(Number(v) || 0));
 const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`;
 const e = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -30,7 +31,12 @@ export function numerosDoMes(d, ref) {
   return { ref, r, ant, ini, fim, catPorId, maiores, porCat, faturas, contas, encargos, orc, pendentes };
 }
 
-export function htmlRelatorio(d, ref, { nome = '' } = {}) {
+export function htmlRelatorio(d, ref, { nome = '', ocultar = false } = {}) {
+  ocultarValores = !!ocultar;
+  try { return montarRelatorio(d, ref, nome); } finally { ocultarValores = false; }
+}
+
+function montarRelatorio(d, ref, nome) {
   const n = numerosDoMes(d, ref);
   const { r, ant } = n;
   const varDesp = ant.despesas ? (r.despesas - ant.despesas) / ant.despesas : null;

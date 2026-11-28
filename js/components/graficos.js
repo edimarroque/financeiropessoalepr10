@@ -5,7 +5,7 @@ import { esc, brl } from '../ui.js';
 export const COR_SEM_CATEGORIA = '#94a3b8';
 export const PALETA = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#22c55e', '#0ea5e9', '#f97316', '#64748b'];
 
-const kfmt = (v) => (Math.abs(v) >= 1000 ? (v / 1000).toFixed(Math.abs(v) >= 10000 ? 0 : 1).replace('.', ',') + 'k' : Math.round(v).toString());
+const kfmt = (v) => globalThis.__privacidade ? '***' : (Math.abs(v) >= 1000 ? (v / 1000).toFixed(Math.abs(v) >= 10000 ? 0 : 1).replace('.', ',') + 'k' : Math.round(v).toString());
 
 /** Barras agrupadas: series = [{nome, cor, valores[]}], rotulos[] */
 export function barras(rotulos, series, { altura = 220, destaque = -1, linha = null } = {}) {

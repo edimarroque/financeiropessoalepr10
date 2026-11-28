@@ -235,3 +235,27 @@ export function lancamentoLocal(ctx, texto, hoje = hojeReal(), regraCategoria = 
   }
   return { item: { data, descricao, valor, tipo, categoria_id: categoria_id || null, conta_id: conta?.id || null, cartao_id: cartao?.id || null, parcelas, metodo }, categoriaCerta: !!categoria_id };
 }
+
+// ---------------- bot que aprende (v1.6.8) ----------------
+// Pergunta que as regras acima não entendem vai ao Gemini UMA vez; ele diz qual consulta sem IA responde (tipo + assunto).
+// Isso fica gravado como "modelo de consulta" (tabela perguntas_aprendidas) e as próximas vezes são respondidas sem IA,
+// sempre com os dados do momento. Perguntas abertas (dicas, análises) não viram modelo: continuam indo ao Gemini.
+export const TIPOS_MODELO = ['gastos', 'receitas', 'parcelas', 'busca', 'saldo', 'faturas', 'contas', 'resumo', 'aberta'];
+
+const PERIODO_RE = new RegExp(`ultimos? \\d{1,2} meses|mes passado|ultimo mes|mes anterior|(esse|este|neste|nesse|no) ano|ano todo|ano inteiro|\\b20\\d\\d\\b|\\b(${MESES_N.join('|')})\\b|\\b(hoje|ontem|agora|atual)\\b`, 'g');
+
+/** Chave do modelo: a pergunta normalizada sem o período, para "uber em outubro" e "uber em setembro" usarem o mesmo modelo */
+export function chaveModelo(pergunta) {
+  return norm(pergunta).replace(PERIODO_RE, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/(\s+(em|no|na|nos|nas|de|do|da|dos|das))+\s*$/, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/** Responde com um modelo aprendido ({ tipo, termo }). Devolve o mesmo formato de responderLocal, ou null. */
+export function responderModelo(d, modelo, pergunta, hoje = hojeReal()) {
+  const tipo = modelo?.tipo, termo = norm(modelo?.termo || '');
+  const n = norm(pergunta);
+  if (['saldo', 'faturas', 'contas', 'resumo'].includes(tipo)) return { comando: tipo };
+  if (tipo === 'gastos' || tipo === 'receitas') return { texto: responderTotais(d, n, termo, hoje, tipo === 'receitas') };
+  if (tipo === 'parcelas') return { texto: (termo && responderParcelas(d, n, termo, hoje)) || responderParcelas(d, n, '', hoje) };
+  if (tipo === 'busca' && termo) return { texto: buscar(d, termo) || `🔎 Não achei lançamentos com “${esc(termo)}”.` };
+  return null;
+}
